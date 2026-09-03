@@ -1,0 +1,21 @@
+[package]
+name = "goodix550a-libfprint-bridge"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "C ABI bridge between libfprint and the Goodix 27c6:550a Rust driver core"
+publish = false
+license = "LGPL-2.1-or-later"
+
+[lib]
+name = "goodix550a_bridge"
+crate-type = ["cdylib"]
+
+[dependencies]
+goodix-info = { package = "goodix550a-driver", path = ".." }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = "warn"

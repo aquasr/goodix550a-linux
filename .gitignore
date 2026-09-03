@@ -1,0 +1,51 @@
+# Rust
+/target/
+**/target/
+
+# Native build output
+/build/
+/build-*/
+**/build/
+**/build-*/
+
+*.o
+*.a
+*.so
+*.so.*
+*.pyc
+__pycache__/
+
+# Device firmware
+goodix-app-trimmed.bin
+*.firmware.bin
+
+# Captures and biometric material
+*.tgla
+*.raw
+*.capture
+*.fingerprint
+*.template
+*.pgm
+
+# Reverse-engineering/runtime evidence
+*.log
+*.trace
+*.pcap
+*.pcapng
+core
+core.*
+*.profraw
+
+# Local configuration
+.env
+.env.*
+.idea/
+.vscode/
+
+# Editor/OS
+*~
+*.swp
+.DS_Store
+
+# Custom filters
+*.md

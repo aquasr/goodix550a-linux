@@ -1,0 +1,152 @@
+[package]
+name = "goodix550a-driver"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Standalone Linux driver core for the Goodix 27c6:550a fingerprint sensor"
+publish = false
+license = "LGPL-2.1-or-later"
+autobins = false
+
+[lib]
+name = "goodix_info"
+path = "src/lib.rs"
+
+[features]
+default = []
+validation-tools = []
+hardware-tools = []
+
+[dependencies]
+rusb = "0.9.4"
+aes = "0.9.2"
+cbc = { version = "0.2.1", features = ["alloc", "block-padding"] }
+getrandom = "0.4.3"
+sha2 = "0.10.9"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Keep Clippy's correctness/style/performance baseline enabled for ordinary
+# development. `pedantic` is intentionally not enabled as a group: this crate
+# contains recovered fixed-width arithmetic whose casts, wrapping operations,
+# and expression ordering are part of the GF3258 compatibility contract.
+# Pedantic findings are reviewed selectively instead of being auto-fixed.
+all = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+[[bin]]
+name = "goodix-info"
+path = "src/main.rs"
+
+[[bin]]
+name = "standalone_enroll"
+path = "src/bin/standalone_enroll.rs"
+
+[[bin]]
+name = "standalone_verify"
+path = "src/bin/standalone_verify.rs"
+
+# Offline parity / fixture validation tools. These are intentionally excluded
+# from ordinary application builds and must be enabled explicitly.
+[[bin]]
+name = "chip_config_dump"
+path = "tools/validation/chip_config_dump.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_bd720_parity"
+path = "tools/validation/feature_bd720_parity.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_c2d40_inputs_parity"
+path = "tools/validation/feature_c2d40_inputs_parity.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_c7310_parity"
+path = "tools/validation/feature_c7310_parity.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_compact_descriptor_parity"
+path = "tools/validation/feature_compact_descriptor_parity.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_descriptor_parity"
+path = "tools/validation/feature_descriptor_parity.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_detector_parity"
+path = "tools/validation/feature_detector_parity.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_gradient_parity"
+path = "tools/validation/feature_gradient_parity.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_live_extract"
+path = "tools/validation/feature_live_extract.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_orientation_parity"
+path = "tools/validation/feature_orientation_parity.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_point_support_parity"
+path = "tools/validation/feature_point_support_parity.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "feature_polarity_parity_v1"
+path = "tools/validation/feature_polarity_parity_v1.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "firmware_info"
+path = "tools/validation/firmware_info.rs"
+required-features = ["validation-tools"]
+
+[[bin]]
+name = "preprocess_parity"
+path = "tools/validation/preprocess_parity.rs"
+required-features = ["validation-tools"]
+
+# Live sensor diagnostics. These may require the USB device, fprintd stopped,
+# and elevated permission to run, but compilation never requires root.
+[[bin]]
+name = "chipid"
+path = "tools/hardware/chipid.rs"
+required-features = ["hardware-tools"]
+
+[[bin]]
+name = "cold_config_probe"
+path = "tools/hardware/cold_config_probe.rs"
+required-features = ["hardware-tools"]
+
+[[bin]]
+name = "cold_version_probe"
+path = "tools/hardware/cold_version_probe.rs"
+required-features = ["hardware-tools"]
+
+[[bin]]
+name = "d2_startup_probe"
+path = "tools/hardware/d2_startup_probe.rs"
+required-features = ["hardware-tools"]
+
+[[bin]]
+name = "otp_dump"
+path = "tools/hardware/otp_dump.rs"
+required-features = ["hardware-tools"]
