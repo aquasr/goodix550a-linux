@@ -48,4 +48,4 @@ core.*
 .DS_Store
 
 # Custom filters
-*.md
+CONTRIBUTING.md
