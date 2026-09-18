@@ -8,9 +8,6 @@ use std::{
     time::Instant,
 };
 
-const CONSOLE_FULL_LIMIT: usize = 128;
-const CONSOLE_PREVIEW_LEN: usize = 64;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Direction {
     In,
@@ -29,7 +26,6 @@ impl fmt::Display for Direction {
 struct TraceState {
     start: Instant,
     writer: Option<BufWriter<File>>,
-    console: bool,
 }
 
 /// One trace session that can survive destruction/recreation of a transport.
@@ -67,12 +63,11 @@ impl TraceLogger {
             state: Rc::new(RefCell::new(TraceState {
                 start: Instant::now(),
                 writer,
-                console: true,
             })),
         })
     }
 
-    /// Create a trace sink that performs no console or file output.
+    /// Create a trace sink that performs no file output.
     ///
     /// Production driver sessions use this mode so protocol tracing never
     /// becomes an observable side effect of enrollment or verification.
@@ -81,7 +76,6 @@ impl TraceLogger {
             state: Rc::new(RefCell::new(TraceState {
                 start: Instant::now(),
                 writer: None,
-                console: false,
             })),
         }
     }
@@ -93,10 +87,6 @@ impl TraceLogger {
         data: &[u8],
     ) -> io::Result<()> {
         let elapsed = self.elapsed_seconds();
-
-        if self.console_enabled() {
-            print_transfer(elapsed, direction, endpoint, data);
-        }
 
         if self.has_writer() {
             let line = format!(
@@ -129,10 +119,6 @@ impl TraceLogger {
 
         let line = format!("[{elapsed:10.6}] ERROR {operation}: {error}");
 
-        if self.console_enabled() {
-            eprintln!("{line}");
-        }
-
         if self.has_writer() {
             self.write_line(&line)?;
         }
@@ -151,10 +137,6 @@ impl TraceLogger {
 
         let line = format!("[{elapsed:10.6}] EVENT {message}");
 
-        if self.console_enabled() {
-            println!("{line}");
-        }
-
         if self.has_writer() {
             self.write_line(&line)?;
         }
@@ -170,10 +152,6 @@ impl TraceLogger {
         self.state.borrow().writer.is_some()
     }
 
-    fn console_enabled(&self) -> bool {
-        self.state.borrow().console
-    }
-
     fn write_line(&self, line: &str) -> io::Result<()> {
         let mut state = self.state.borrow_mut();
 
@@ -184,28 +162,6 @@ impl TraceLogger {
         writeln!(writer, "{line}")?;
         writer.flush()
     }
-}
-
-fn print_transfer(elapsed: f64, direction: Direction, endpoint: u8, data: &[u8]) {
-    if data.len() <= CONSOLE_FULL_LIMIT {
-        println!(
-            "[{elapsed:10.6}] {direction:<3} \
-             ep=0x{endpoint:02x} len={} data={}",
-            data.len(),
-            encode_hex(data),
-        );
-
-        return;
-    }
-
-    let preview = &data[..data.len().min(CONSOLE_PREVIEW_LEN)];
-
-    println!(
-        "[{elapsed:10.6}] {direction:<3} \
-         ep=0x{endpoint:02x} len={} data={}...",
-        data.len(),
-        encode_hex(preview),
-    );
 }
 
 fn encode_hex(data: &[u8]) -> String {
@@ -275,12 +231,20 @@ mod tests {
     }
 
     #[test]
-    fn quiet_logger_has_no_console_or_file_sink() {
+    fn quiet_logger_has_no_file_sink() {
         let trace = TraceLogger::quiet();
 
-        assert!(!trace.console_enabled());
         assert!(!trace.has_writer());
         trace.transfer(Direction::Out, 0x01, &[0xa0, 0x00]).unwrap();
         trace.event("quiet event").unwrap();
+    }
+
+    #[test]
+    fn logger_without_trace_path_has_no_file_sink() {
+        let trace = TraceLogger::new(None).unwrap();
+
+        assert!(!trace.has_writer());
+        trace.transfer(Direction::Out, 0x01, &[0xa0, 0x00]).unwrap();
+        trace.event("unconfigured trace event").unwrap();
     }
 }
