@@ -106,6 +106,26 @@ independent trace or hardware trial.
 See [REVERSE_ENGINEERING.md](REVERSE_ENGINEERING.md) for the evidence and
 provenance rules.
 
+### Worked reconstruction example: resolving feature polarity
+
+One small but representative ambiguity appeared in the recovered feature-point
+records: a binary polarity field could plausibly encode either a negative or a
+nonnegative signed detector response. Rather than choose from decompiler output
+alone, the validation path kept both mappings as competing hypotheses.
+
+[`tools/validation/feature_polarity_parity_v1.rs`](tools/validation/feature_polarity_parity_v1.rs)
+independently recomputes the primary feature candidates for a retained
+instrumented fixture and compares both candidate mappings against the
+corresponding vendor `FeaturePoint` polarity. The tool accepts a mapping only
+when it has zero mismatches across the fixture. The retained result is
+implemented as `polarity = (raw_response < 0)`, and the production helper has
+explicit regression coverage for negative, zero, and positive responses.
+
+This is representative of the broader reconstruction process: ambiguity is
+kept explicit until an observable intermediate value separates the candidate
+models; the surviving rule is then encoded in production code and regression
+tests. The retained reference fixture itself is not distributed.
+
 ## Validation
 
 Different tests establish different claims:
