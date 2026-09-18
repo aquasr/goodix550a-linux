@@ -91,6 +91,7 @@ enum Action {
 struct Options {
     action: Action,
     trace_path: Option<PathBuf>,
+    show_secrets: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +113,16 @@ pub fn run() -> AppResult<()> {
 
     if let Action::Visualize { input, output } = &options.action {
         return run_visualize(input, output);
+    }
+
+    if options.show_secrets {
+        eprintln!(
+            "WARNING: --show-secrets will print live persisted authentication material to the terminal."
+        );
+        eprintln!(
+            "Do not record or share this output unless it is required for controlled analysis."
+        );
+        eprintln!();
     }
 
     require_unprivileged_hardware_access()?;
@@ -189,6 +200,8 @@ pub fn run() -> AppResult<()> {
         }
     }
 
+    let show_secrets = options.show_secrets;
+
     match options.action {
         Action::Info => {
             println!("Firmware mode: {}", firmware_mode_name(mode));
@@ -203,11 +216,11 @@ pub fn run() -> AppResult<()> {
         }
 
         Action::Psk => {
-            run_psk_diagnostic(&mut transport, mode)?;
+            run_psk_diagnostic(&mut transport, mode, show_secrets)?;
         }
 
         Action::BootstrapCheck { firmware } => {
-            run_bootstrap_check(&mut transport, mode, &version, &firmware)?;
+            run_bootstrap_check(&mut transport, mode, &version, &firmware, show_secrets)?;
         }
 
         Action::BootstrapLive { firmware } => {
@@ -429,6 +442,7 @@ fn run_bootstrap_check(
     mode: FirmwareMode,
     device_version: &str,
     firmware_path: &Path,
+    show_secrets: bool,
 ) -> Result<(), Box<dyn Error>> {
     println!("Live bootstrap dry-run");
 
@@ -488,15 +502,17 @@ fn run_bootstrap_check(
 
     println!("Recovered PSK: {} bytes", runtime_psk.plaintext.len());
 
-    println!(
-        "Stored SHA-256:     {}",
-        encode_hex(&runtime_psk.stored_hash)
-    );
+    if show_secrets {
+        println!(
+            "Stored SHA-256:     {}",
+            encode_hex(&runtime_psk.stored_hash)
+        );
 
-    println!(
-        "Calculated SHA-256: {}",
-        encode_hex(&runtime_psk.calculated_hash)
-    );
+        println!(
+            "Calculated SHA-256: {}",
+            encode_hex(&runtime_psk.calculated_hash)
+        );
+    }
 
     println!("Live PSK verified: true");
 
@@ -570,17 +586,21 @@ fn run_bootstrap_check(
 
     println!("Calculating firmware authentication...");
 
-    let pmk_hmac = get_pmk_hmac_from_psk(&runtime_psk.plaintext)?;
-
     let f4_tag = firmware_f4_tag(&runtime_psk.plaintext, package.bytes())?;
 
-    println!("GetPmkHmac:      {}", encode_hex(&pmk_hmac));
+    if show_secrets {
+        let pmk_hmac = get_pmk_hmac_from_psk(&runtime_psk.plaintext)?;
 
-    println!("Calculated F4:   {}", encode_hex(&f4_tag));
+        println!("GetPmkHmac:      {}", encode_hex(&pmk_hmac));
 
-    println!("Captured F4:     {}", encode_hex(&EXPECTED_VENDOR_F4));
+        println!("Calculated F4:   {}", encode_hex(&f4_tag));
+
+        println!("Captured F4:     {}", encode_hex(&EXPECTED_VENDOR_F4));
+    }
 
     let captured_f4_match = f4_tag == EXPECTED_VENDOR_F4;
+
+    println!("Firmware authentication derivation: PASS");
 
     println!("Captured F4 match: {}", captured_f4_match);
 
@@ -641,6 +661,7 @@ fn run_bootstrap_check(
 fn run_psk_diagnostic(
     transport: &mut GoodixTransport<'_>,
     mode: FirmwareMode,
+    show_secrets: bool,
 ) -> Result<(), Box<dyn Error>> {
     println!("Persisted PSK diagnostic");
 
@@ -659,30 +680,30 @@ fn run_psk_diagnostic(
 
     println!("Sealed PSK object: {} bytes", runtime_psk.sealed.len());
 
-    println!("Sealed PSK: {}", encode_hex(&runtime_psk.sealed));
-
-    println!();
-
     println!("Recovered PSK: {} bytes", runtime_psk.plaintext.len());
 
-    println!("PSK: {}", encode_hex(&runtime_psk.plaintext));
+    if show_secrets {
+        println!();
 
-    println!(
-        "PSK all-zero: {}",
-        runtime_psk.plaintext.iter().all(|&byte| byte == 0)
-    );
+        println!("Sealed PSK: {}", encode_hex(&runtime_psk.sealed));
 
-    println!();
+        println!("PSK: {}", encode_hex(&runtime_psk.plaintext));
 
-    println!(
-        "Stored SHA-256:     {}",
-        encode_hex(&runtime_psk.stored_hash)
-    );
+        println!(
+            "PSK all-zero: {}",
+            runtime_psk.plaintext.iter().all(|&byte| byte == 0)
+        );
 
-    println!(
-        "Calculated SHA-256: {}",
-        encode_hex(&runtime_psk.calculated_hash)
-    );
+        println!(
+            "Stored SHA-256:     {}",
+            encode_hex(&runtime_psk.stored_hash)
+        );
+
+        println!(
+            "Calculated SHA-256: {}",
+            encode_hex(&runtime_psk.calculated_hash)
+        );
+    }
 
     println!("PSK hash valid: true");
 
@@ -692,7 +713,11 @@ fn run_psk_diagnostic(
 
     let pmk_hmac = get_pmk_hmac_from_psk(&runtime_psk.plaintext)?;
 
-    println!("GetPmkHmac: {}", encode_hex(&pmk_hmac));
+    if show_secrets {
+        println!("GetPmkHmac: {}", encode_hex(&pmk_hmac));
+    }
+
+    println!("GetPmkHmac derivation: PASS");
 
     println!();
 
@@ -1068,6 +1093,7 @@ fn parse_arguments() -> Result<Options, Box<dyn Error>> {
 
     let mut action = None;
     let mut trace_path = None;
+    let mut show_secrets = false;
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -1175,6 +1201,14 @@ fn parse_arguments() -> Result<Options, Box<dyn Error>> {
                 trace_path = Some(PathBuf::from(path));
             }
 
+            "--show-secrets" => {
+                if show_secrets {
+                    return Err(invalid_input("--show-secrets may only be specified once").into());
+                }
+
+                show_secrets = true;
+            }
+
             "-h" | "--help" => {
                 print_usage();
 
@@ -1187,10 +1221,18 @@ fn parse_arguments() -> Result<Options, Box<dyn Error>> {
         }
     }
 
-    Ok(Options {
-        action: action.unwrap_or(Action::Info),
+    let action = action.unwrap_or(Action::Info);
 
+    if show_secrets && !matches!(&action, Action::Psk | Action::BootstrapCheck { .. }) {
+        return Err(
+            invalid_input("--show-secrets is valid only with psk or bootstrap-check").into(),
+        );
+    }
+
+    Ok(Options {
+        action,
         trace_path,
+        show_secrets,
     })
 }
 
@@ -1215,8 +1257,8 @@ Usage:
   goodix-info [info] [--trace FILE]
   goodix-info monitor [--trace FILE]
   goodix-info capture OUTPUT.pgm [--trace FILE]
-  goodix-info psk [--trace FILE]
-  goodix-info bootstrap-check FIRMWARE.bin [--trace FILE]
+  goodix-info psk [--trace FILE] [--show-secrets]
+  goodix-info bootstrap-check FIRMWARE.bin [--trace FILE] [--show-secrets]
   goodix-info bootstrap-live FIRMWARE.bin [--trace FILE]
   goodix-info visualize DECRYPTED OUTPUT.pgm
 
@@ -1262,6 +1304,11 @@ Commands:
 Options:
   --trace FILE
       Record USB traffic to FILE
+
+  --show-secrets
+      Print live sealed/plaintext PSK material, PSK verification
+      hashes, and derived authentication values. Valid only with
+      psk and bootstrap-check.
 
   -h, --help
       Show this help"
