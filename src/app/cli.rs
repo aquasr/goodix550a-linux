@@ -28,6 +28,7 @@ use crate::image::{
     IMAGE_HEIGHT, IMAGE_WIDTH, ProtectedImage, normalize_12bit_to_u8, restructure_gf3258_wn2,
 };
 use crate::preprocess::Gf3258Preprocessor;
+use crate::private_file::write_private_file;
 use crate::protocol::{Command, McuPacket};
 use crate::trace::TraceLogger;
 use crate::transport::GoodixTransport;
@@ -1032,7 +1033,7 @@ fn write_pgm(path: &Path, pixels: &[u8]) -> Result<(), Box<dyn Error>> {
 
     pgm.extend_from_slice(pixels);
 
-    fs::write(path, pgm)?;
+    write_private_file(path, &pgm)?;
 
     Ok(())
 }

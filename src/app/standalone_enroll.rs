@@ -38,6 +38,7 @@ use crate::feature::{
     GF3258_A8200_REVISION, GF3258_BD720_REVISION, GF3258_MATCH_SCORE_MATRIX_STRIDE,
     Gf3258CandidateMatcherConfig, Gf3258OwnedMatcherFeature, gf3258_generate_match_candidates,
 };
+use crate::private_file::write_private_file;
 use crate::registration::gf3258_matcher_geometry_from_pair_slots;
 use crate::trace::TraceLogger;
 
@@ -399,7 +400,7 @@ pub fn run() -> AppResult<()> {
         let tgla = artifacts.tgla_template();
         let tgla_diagnostics = artifacts.tgla_diagnostics();
 
-        fs::write(&options.raw_template_path, raw_template)?;
+        write_private_file(&options.raw_template_path, raw_template)?;
 
         println!(
             "raw algorithm template: wrote {} bytes to {}",
@@ -414,7 +415,7 @@ pub fn run() -> AppResult<()> {
             raw_template[5],
         );
 
-        fs::write(&options.tgla_template_path, tgla)?;
+        write_private_file(&options.tgla_template_path, tgla)?;
 
         println!(
             "TGLA persistent template: wrote {} bytes to {}",

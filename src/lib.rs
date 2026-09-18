@@ -28,6 +28,7 @@ pub mod libfprint_wire;
 #[cfg(test)]
 mod persistence_capture;
 pub mod preprocess;
+mod private_file;
 mod protocol;
 mod registration;
 mod template_decode;

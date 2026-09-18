@@ -1,3 +1,5 @@
+use crate::private_file::open_private_file;
+
 use std::{
     cell::RefCell,
     fmt::{self, Write as _},
@@ -39,7 +41,7 @@ struct TraceState {
 /// This is important for Goodix firmware bootstrap because `McuResetMcu`
 /// destroys the old USB device/transport. A clone retained by the bootstrap
 /// orchestrator can then be moved into the transport for the re-enumerated
-/// APP device without calling `File::create()` again and truncating the IAP
+/// APP device without reopening the trace path and truncating the IAP
 /// portion of the trace.
 ///
 /// The driver is currently single-threaded, so `Rc<RefCell<_>>` is sufficient
@@ -57,7 +59,7 @@ impl TraceLogger {
     /// once, at the beginning of the session. Cloning this logger never
     /// touches the path again.
     pub(crate) fn new(path: Option<&Path>) -> io::Result<Self> {
-        let writer = path.map(File::create).transpose()?.map(BufWriter::new);
+        let writer = path.map(open_private_file).transpose()?.map(BufWriter::new);
 
         Ok(Self {
             state: Rc::new(RefCell::new(TraceState {
@@ -218,6 +220,32 @@ mod tests {
 
         assert!(trace.contains("EVENT IAP before reset"));
         assert!(trace.contains("EVENT APP after re-enumeration"));
+
+        fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn trace_file_is_created_with_private_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+
+        let path = std::env::temp_dir().join(format!(
+            "goodix-private-trace-{}-{unique}.log",
+            std::process::id()
+        ));
+
+        let trace = TraceLogger::new(Some(&path)).unwrap();
+        trace.event("private trace").unwrap();
+        drop(trace);
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+
+        assert_eq!(mode, 0o600);
 
         fs::remove_file(path).unwrap();
     }
