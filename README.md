@@ -77,6 +77,62 @@ Firmware is accepted only when a cold bootstrap is required. The driver checks
 the USB ID, current IAP identity, target APP identity, resource size, metadata,
 and checksums before exposing firmware transfer data.
 
+## Architecture and host trust boundary
+
+For this reconstructed desktop path, authentication is a composition of
+multiple host components rather than a direct sensor-to-PAM decision. The
+sensor supplies protocol responses and encrypted capture data; biometric
+processing and the terminal gallery decision occur in the host-side
+implementation.
+
+```text
+application / PAM
+       |
+       | D-Bus authentication interface
+       v
+     fprintd
+       |
+       | libfprint API
+       v
+    libfprint
+       |
+       | driver operations
+       v
+Goodix C driver overlay
+       |
+       | Rust C ABI
+       v
+  Goodix Rust core
+       |
+       | USB actions / responses
+       v
+libfprint-owned GUsbDevice
+       |
+       v
+      USB
+       |
+       v
+Goodix 27c6:550a sensor
+```
+
+Security-relevant state and authority are distributed across this path rather
+than confined to the sensor:
+
+| Boundary or component | Security-relevant state or responsibility |
+| --- | --- |
+| **USB boundary** | The host-generated D2 value and encrypted image response cross this boundary. Bytes 16 through 31 of D2 are used as the AES-128 image key for that capture. |
+| **Goodix Rust core** | D2 session material, decrypted sensor samples, reconstructed images, feature records, enrollment state, persisted-template data, matcher state, and the terminal gallery decision are handled here. |
+| **Rust/C and libfprint boundary** | Enrollment exports the persisted TGLA representation through `FpPrint`; verification exports the terminal match, no-match, or retry result rather than intermediate matcher evidence. |
+| **fprintd and host persistence** | Persisted print data and the desktop authentication lifecycle extend the effective trust boundary beyond the driver and USB protocol. |
+| **D-Bus / PAM / applications** | Authentication requests, cancellation, policy, and consumption of the terminal result belong to the composed desktop authentication path rather than to the sensor protocol itself. |
+
+For this reconstructed path, the sensor does not produce the terminal gallery
+match decision; that decision is produced by the host-side Rust
+implementation. Device I/O, biometric processing, template handling, decision
+generation, persistence, and desktop authentication therefore span multiple
+components and interfaces. This composition motivates the isolation,
+lifecycle, and authority experiments described in [RESEARCH.md](RESEARCH.md).
+
 ## How it was reconstructed
 
 The implementation was developed through four forms of evidence:
