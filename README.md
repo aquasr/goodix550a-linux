@@ -240,66 +240,40 @@ and the modified plaintext would need to affect a security-sensitive operation.
 One captured provisioning flow contained a 32 byte PSK consisting entirely of
 zero bytes; that observation is limited to the studied sensor.
 
-### Host boundary
+## Open research questions
 
-The reconstructed image, extracted features, enrollment state, persisted
-template, and match decision are handled on the host. The relevant boundary is
-therefore larger than the USB protocol alone: it also includes libfprint,
-fprintd, D-Bus, PAM, and template storage. Retry limits, cancellation,
-ownership, and recovery are properties of that composed path.
+The observations above are established only to the limits stated in this
+repository. They motivate, but do not answer, several broader research
+questions:
 
-## Questions raised by the reconstruction
+1. **Specification recovery.** Which externally relevant behaviors are
+   sufficient to specify a stateful hardware/software interface when no
+   authoritative specification exists, and how can stable behavior be
+   separated from hidden state, implementation artifacts, and instrumentation
+   effects?
 
-Finishing the host path did not remove the uncertainty that made the reconstruction
-difficult. Different internal models sometimes produced the same final result until
-an intermediate value or a controlled device transition separated them. Some state
-is visible only through instrumentation, and reproducing reference behavior does not
-mean every internal choice in the reference implementation should be preserved.
+2. **Conformance.** What should conformance require from an independent
+   implementation when reproducing final enrollment or verification outcomes
+   is not sufficient? Relevant dimensions include protocol transitions,
+   session and persistent state, failure behavior, recovery, and permitted
+   run-to-run variation.
 
-Four questions follow directly from those limits:
+3. **Compatibility and isolation.** Which externally visible behaviors must
+   remain compatible while internal trust boundaries are changed? The
+   reconstructed path provides a baseline for testing whether privilege,
+   shared sensitive state, or trusted code can be reduced without breaking
+   device or desktop behavior.
 
-1. **Specification recovery.** How can a trustworthy behavioral specification be
-   recovered for a stateful hardware and software interface when no authoritative
-   specification exists and the reference implementation is observable only through
-   its binary and runtime behavior? The problem is to separate stable interface
-   behavior from hidden state, implementation artifacts, and effects introduced by
-   instrumentation.
+4. **Runtime checking.** Which recovered protocol and state invariants can be
+   checked during execution without materially changing the behavior being
+   observed, and what coverage, latency, and failure-handling costs do those
+   checks introduce?
 
-2. **Conformance.** What should conformance mean for an independent implementation
-   when matching enrollment or verification outcomes is not enough? A useful test
-   must cover externally relevant protocol transitions, session and persistent state,
-   failure and recovery behavior, and device responses that may legitimately vary
-   across runs.
-
-3. **Compatibility and isolation.** Which externally visible behaviors must remain
-   compatible, and which internal boundaries can change without breaking the device
-   or desktop path? A replacement implementation can test whether required behavior
-   is preserved while reducing privilege, shared sensitive state, or the amount of
-   code that must be trusted.
-
-4. **Runtime checks.** Can recovered protocol and state invariants be checked during
-   execution without materially changing the behavior being checked? The evaluation
-   should identify where such checks run, what events trigger them, and what cost
-   they add to capture, cancellation, suspend, recovery, and login.
-
-The current repository already supports three direct experiments:
-
-1. Recover an image from a recorded D2 trace and test replay within one session and
-   across separate sessions, recording the first state that rejects a substituted
-   response.
-2. Emulate the expected USB endpoint and test whether device or session identity
-   survives re-enumeration, restart, and suspend.
-3. Trace one authentication request through libfprint, fprintd, D-Bus, and PAM to
-   locate retry, cancellation, and authorization policy.
-
-A failed replay or substitution is still useful if it identifies the component or
-state that supplies the missing property. More ambitious runtime checking or host
-isolation should come only after this baseline is measured. Without an explicit
-attacker model, a comparison point, and measurements of latency and failure behavior,
-such a prototype would be implementation work rather than a research result.
-
-The fuller threat models, prior work discussion, and study designs are in
-[RESEARCH.md](RESEARCH.md).
+These are open questions rather than findings of the current implementation.
+[RESEARCH.md](RESEARCH.md) defines the corresponding attacker models,
+comparison points, prior-work context, and experiments involving trace replay,
+endpoint substitution, lifecycle continuity, authority placement, isolation,
+and runtime checking.
 
 ## Repository map
 
