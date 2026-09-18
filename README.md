@@ -16,6 +16,26 @@ distributed here.
 > states. This is not an audited authentication component. Keep another login
 > method available while testing it.
 
+## Current research state
+
+This repository serves two roles: it is an independent executable
+reconstruction of the studied fingerprint stack, and it provides an
+experimental baseline for studying the behavior and trust boundaries of an
+undocumented hardware/software interface.
+
+| State | Current status |
+| --- | --- |
+| **Established** | An independent host path covers startup, authenticated firmware bootstrap, encrypted capture, image reconstruction, enrollment, persistence, verification, and experimental libfprint integration without loading the proprietary Goodix host library. |
+| **Validated** | Reconstructed components are checked with deterministic tests, retained intermediate-state parity evidence, standalone hardware workflows, persistence reload, and live libfprint enrollment and verification on the development sensor. |
+| **Evidence standard** | End-to-end success is not treated as proof of internal parity. Where an observable intermediate boundary exists, candidate reconstructions are compared against that boundary and revised or rejected when they disagree. |
+| **Security-relevant observations** | The studied host exposes capture-decryption inputs in the D2 USB exchange; the recovered mode-1 sealed-object HMAC does not authenticate its CBC IV; and reconstructed images, templates, matcher state, and final match decisions are handled on the host. |
+| **Current boundary** | Hardware evidence currently comes from one physical `27c6:550a` sensor and the documented APP/IAP firmware pair. The repository does not establish population biometric error rates, product-wide vulnerabilities, or production security. |
+| **Research enabled** | The reconstruction makes it possible to test behavioral conformance, device and session continuity, replay and substitution boundaries, host-side trust composition, isolation strategies, and runtime checking against an independently executable baseline. |
+
+Proposed experiments are kept separate from established findings. Their attacker
+models, comparison points, measurements, and current evidence are described in
+[RESEARCH.md](RESEARCH.md).
+
 ## What works
 
 | | |
