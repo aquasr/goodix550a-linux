@@ -34,7 +34,9 @@ undocumented hardware/software interface.
 
 Proposed experiments are kept separate from established findings. Their attacker
 models, comparison points, measurements, and current evidence are described in
-[RESEARCH.md](RESEARCH.md).
+[RESEARCH.md](RESEARCH.md). The progression from initial device access to the
+current executable research baseline is summarized in
+[PROJECT_HISTORY.md](PROJECT_HISTORY.md).
 
 ## What works
 
@@ -152,7 +154,7 @@ The implementation was developed through four forms of evidence:
 
 Where an observable boundary was available, a candidate reconstruction was retained
 only when the independent implementation reproduced the expected intermediate state
-or device behavior. End to end success was not treated as sufficient evidence of
+or device behavior. End-to-end success was not treated as sufficient evidence of
 parity. Reconstructions that produced plausible final behavior but disagreed at an
 observable intermediate boundary were revised or rejected. The documentation
 distinguishes observed behavior, recovered implementation details, validated
@@ -237,7 +239,7 @@ decrypted block without invalidating the recorded HMAC.
 This property is reproducible offline, but its system impact has not been
 established. An attacker would still need to substitute the persisted object,
 and the modified plaintext would need to affect a security-sensitive operation.
-One captured provisioning flow contained a 32 byte PSK consisting entirely of
+One captured provisioning flow contained a 32-byte PSK consisting entirely of
 zero bytes; that observation is limited to the studied sensor.
 
 ## Open research questions
@@ -290,6 +292,7 @@ and runtime checking.
 | `src/libfprint*.rs`, `libfprint-bridge/` | Backend-neutral operations and the C ABI |
 | `libfprint-overlay/` | Asynchronous libfprint driver and integration probes |
 | `tools/` | Offline parity programs and narrow hardware diagnostics |
+| `PROJECT_HISTORY.md` | Technical progression from initial device access to the current research baseline |
 
 ## Build and test
 
