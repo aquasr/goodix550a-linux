@@ -7,10 +7,10 @@ controlled experiments because no public protocol or matcher specification was
 available.
 
 The driver covers device startup, encrypted image acquisition, image
-reconstruction, enrollment, template persistence, verification, and
-experimental libfprint integration. It does not load or link the proprietary
-Goodix host library. The sensor firmware remains proprietary and is not
-distributed here.
+reconstruction, enrollment, template persistence, verification, and host-side
+1:N identification through experimental libfprint integration. It does not load
+or link the proprietary Goodix host library. The sensor firmware remains
+proprietary and is not distributed here.
 
 > **Status:** Experimental support for one sensor in its APP and IAP firmware
 > states. This is not an audited authentication component. Keep another login
@@ -25,8 +25,8 @@ undocumented hardware/software interface.
 
 | State | Current status |
 | --- | --- |
-| **Established** | An independent host path covers startup, authenticated firmware bootstrap, encrypted capture, image reconstruction, enrollment, persistence, verification, and experimental libfprint integration without loading the proprietary Goodix host library. |
-| **Validated** | Reconstructed components are checked with deterministic tests, retained intermediate-state parity evidence, standalone hardware workflows, persistence reload, and live libfprint enrollment and verification on the development sensor. |
+| **Established** | An independent host path covers startup, authenticated firmware bootstrap, encrypted capture, image reconstruction, enrollment, persistence, verification, and host-side 1:N identification through experimental libfprint integration without loading the proprietary Goodix host library. |
+| **Validated** | Reconstructed components are checked with deterministic tests, retained intermediate-state parity evidence, standalone hardware workflows, persistence reload, live libfprint enrollment, verification, and identification, and end-to-end PAM authentication on the development sensor. |
 | **Evidence standard** | End-to-end success is not treated as proof of internal parity. Where an observable intermediate boundary exists, candidate reconstructions are compared against that boundary and revised or rejected when they disagree. |
 | **Security-relevant observations** | The studied host exposes capture-decryption inputs in the D2 USB exchange; the recovered mode-1 sealed-object HMAC does not authenticate its CBC IV; and reconstructed images, templates, matcher state, and final match decisions are handled on the host. |
 | **Current boundary** | Hardware evidence currently comes from one physical `27c6:550a` sensor and the documented APP/IAP firmware pair. The repository does not establish population biometric error rates, product-wide vulnerabilities, or production security. |
@@ -46,12 +46,14 @@ current executable research baseline is summarized in
 | **Firmware states** | APP `GFUSB_GM168SEC_APP_15045`; IAP `MILAN_GM168SEC_IAP_10007` |
 | **Startup** | Warm APP startup and authenticated IAP-to-APP firmware transfer |
 | **Capture** | Finger detection, encrypted acquisition, decryption, CRC validation, and `80 × 64` image reconstruction |
-| **Biometric path** | 12-sample enrollment, TGLA persistence, gallery verification, and libfprint integration |
+| **Biometric path** | 12-sample enrollment, TGLA persistence, gallery verification, host-side 1:N identification, and libfprint integration |
 | **Vendor dependency** | No proprietary Goodix host library at runtime |
 
 On the development sensor, the standalone and libfprint paths have completed
-live capture, enrollment, persistence reload, and verification. These trials
-show that the reconstructed components operate together. They do not establish
+live capture, enrollment, persistence reload, verification, and host-side 1:N
+identification. The desktop path has also authenticated each of two enrolled
+fingers independently through fprintd and PAM. These trials show that the
+reconstructed components operate together. They do not establish
 population-level false match or false nonmatch rates, and hardware results
 currently come from one physical sensor.
 
@@ -124,7 +126,7 @@ than confined to the sensor:
 | --- | --- |
 | **USB boundary** | The host-generated D2 value and encrypted image response cross this boundary. Bytes 16 through 31 of D2 are used as the AES-128 image key for that capture. |
 | **Goodix Rust core** | D2 session material, decrypted sensor samples, reconstructed images, feature records, enrollment state, persisted-template data, matcher state, and the terminal gallery decision are handled here. |
-| **Rust/C and libfprint boundary** | Enrollment exports the persisted TGLA representation through `FpPrint`; verification exports the terminal match, no-match, or retry result rather than intermediate matcher evidence. |
+| **Rust/C and libfprint boundary** | Enrollment exports the persisted TGLA representation through `FpPrint`; verification exports the terminal match, no-match, or retry result; identification validates a non-empty host gallery before capture and reports the matched gallery print together with the scanned print. |
 | **fprintd and host persistence** | Persisted print data and the desktop authentication lifecycle extend the effective trust boundary beyond the driver and USB protocol. |
 | **D-Bus / PAM / applications** | Authentication requests, cancellation, policy, and consumption of the terminal result belong to the composed desktop authentication path rather than to the sensor protocol itself. |
 
@@ -194,7 +196,8 @@ Different tests establish different claims:
 | Offline parity tools | Agreement with retained external reference intermediates | No |
 | Live diagnostics | Version, OTP, configuration, D2, and chip ID behavior | Yes |
 | Standalone workflows | Capture, enrollment, persistence reload, and verification | Yes |
-| libfprint probes | Enrollment and verification through the public libfprint path | Yes |
+| libfprint probes | Enrollment, verification, and host-gallery identification through the public libfprint path | Yes |
+| Desktop authentication | End-to-end fprintd and PAM authentication using enrolled prints | Yes |
 
 Ordinary `cargo test` runs are deterministic and do not open the sensor. A
 green test run establishes regression behavior on that host; it does not prove
@@ -357,7 +360,7 @@ libfprint 1.94.100 source tree. See
 * Only USB `27c6:550a`, GF3258 WN2 / GM168SEC, and the listed APP and IAP
   firmware identities are accepted.
 * Hardware results currently come from one physical sensor.
-* Identify and device-side template storage are not implemented.
+* Host-side 1:N identification through libfprint is implemented for non-empty host galleries; device-side template storage is not implemented.
 * Vendor `GdxEnc` sealing is not reproduced; persistence uses the recovered
   TGLA representation directly.
 * Optional verification profile and cache state remain disabled.

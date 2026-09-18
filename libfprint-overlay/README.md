@@ -6,7 +6,7 @@ driver.
 The overlay targets a clean libfprint 1.94.100 source tree. libfprint remains the
 sole USB owner. The C driver handles libfprint integration and asynchronous
 operation dispatch; the Rust bridge retains Goodix protocol, capture, enrollment,
-persistence, and verification behavior.
+persistence, verification, and host-gallery identification behavior.
 
 For project scope, validation limits, and reverse-engineering provenance, see the
 root [README.md](../README.md) and
@@ -37,7 +37,7 @@ The Rust side does not create a second USB owner.
 
 ## Persisted print representation
 
-Enrollment and verification use the same persisted representation.
+Enrollment, verification, and identification use the same persisted representation.
 
 The returned `FpPrint` is `FPI_PRINT_RAW`. Its `fpi-data` value is `(uay)` and
 contains:
@@ -47,8 +47,8 @@ format version 1
 TGLA bytes
 ```
 
-Verification consumes this representation directly. The overlay does not maintain a
-second template format.
+Verification and identification consume this representation directly. The overlay
+does not maintain a second template format.
 
 ## Enrollment
 
@@ -89,6 +89,37 @@ Gf3258GalleryVerificationDecision::NoMatch
 Intermediate matcher evidence or partial workflow state cannot produce
 authentication success by itself.
 
+## Identification
+
+Identification is host-side 1:N matching over a non-empty libfprint gallery.
+
+Before any sensor transaction, the driver validates every gallery `FpPrint`,
+including its format version and TGLA payload. A single physical capture is then
+evaluated against every accepted TGLA in Rust.
+
+The result mapping is:
+
+```text
+retryable live capture rejection
+    -> FP_DEVICE_RETRY_GENERAL
+
+one or more gallery matches
+    -> highest-scoring match
+    -> earlier gallery entry wins an equal-score tie
+    -> matched gallery FpPrint + scanned FpPrint
+
+no gallery match
+    -> no matched gallery FpPrint + scanned FpPrint
+```
+
+The scanned print uses the same versioned `FPI_PRINT_RAW` TGLA representation as
+enrollment. Identification does not perform one physical capture per gallery
+entry.
+
+The driver has no sensor-resident fingerprint database. An empty libfprint
+identification gallery is therefore reported as unsupported rather than treated
+as a device-side identification request.
+
 ## Enrollment probe
 
 `enroll-probe.c` exercises the public libfprint API.
@@ -116,8 +147,7 @@ directory and in [`../tools/README.md`](../tools/README.md).
 
 The overlay does not currently implement:
 
-* identify;
-* device-side template storage;
+* device-side template storage or empty-gallery device-side identification;
 * a second persistence or template representation.
 
 ## Related documentation

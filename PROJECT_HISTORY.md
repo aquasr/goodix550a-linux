@@ -181,6 +181,14 @@ terminal match, no-match, or retry result rather than internal matcher state.
 Live integration trials completed capture, enrollment, persistence reload, and
 verification through the libfprint path on the development sensor.
 
+A later integration pass added host-side 1:N identification for non-empty
+libfprint galleries. All persisted gallery TGLAs are validated before sensor
+I/O, one physical capture is evaluated against the accepted gallery, and the
+selected gallery `FpPrint` is reported together with the scanned print. On the
+development system, each of two enrolled index fingers authenticated
+independently through fprintd and PAM, while an unenrolled finger produced a
+no-match result during staged validation.
+
 The independent reconstruction became usable through the standard
 Linux fingerprint-driver interface without loading the proprietary Goodix host
 library.

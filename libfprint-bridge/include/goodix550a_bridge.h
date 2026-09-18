@@ -138,6 +138,37 @@ typedef struct
   uint32_t stored_crc;
 } Goodix550aBridgeVerificationInfo;
 
+typedef struct Goodix550aBridgeIdentification Goodix550aBridgeIdentification;
+
+typedef enum
+{
+  GOODIX550A_BRIDGE_IDENTIFY_RETRY = 1,
+  GOODIX550A_BRIDGE_IDENTIFY_MATCH = 2,
+  GOODIX550A_BRIDGE_IDENTIFY_NO_MATCH = 3,
+} Goodix550aBridgeIdentificationDisposition;
+
+typedef struct
+{
+  uint32_t direction;
+  uint32_t stage;
+  size_t transfer_length;
+  uint32_t timeout_ms;
+  uint8_t endpoint;
+  uint8_t short_is_error;
+  uint16_t reserved;
+} Goodix550aBridgeIdentificationAction;
+
+typedef struct
+{
+  uint32_t disposition;
+  int32_t score;
+  size_t match_index;
+  size_t protected_bytes;
+  size_t pixel_count;
+  uint32_t stored_crc;
+  size_t scanned_tgla_bytes;
+} Goodix550aBridgeIdentificationInfo;
+
 typedef struct Goodix550aBridgeCapture Goodix550aBridgeCapture;
 
 typedef struct
@@ -300,6 +331,36 @@ int goodix550a_bridge_verification_result (Goodix550aBridgeVerification     *ver
                                              Goodix550aBridgeVerificationInfo *info);
 
 const char *goodix550a_bridge_verification_last_error (const Goodix550aBridgeVerification *verification);
+
+int goodix550a_bridge_identification_new (const uint8_t                    *tgla,
+                                           size_t                            tgla_length,
+                                           Goodix550aBridgeIdentification **identification);
+
+int goodix550a_bridge_identification_add_template (Goodix550aBridgeIdentification *identification,
+                                                    const uint8_t                  *tgla,
+                                                    size_t                          tgla_length);
+
+void goodix550a_bridge_identification_free (Goodix550aBridgeIdentification *identification);
+
+int goodix550a_bridge_identification_next_action (Goodix550aBridgeIdentification       *identification,
+                                                   Goodix550aBridgeIdentificationAction *action,
+                                                   uint8_t                              *output,
+                                                   size_t                                output_length);
+
+int goodix550a_bridge_identification_complete_transfer (Goodix550aBridgeIdentification *identification,
+                                                         const uint8_t                    *input,
+                                                         size_t                            input_length,
+                                                         uint8_t                          *advanced);
+
+int goodix550a_bridge_identification_result (Goodix550aBridgeIdentification     *identification,
+                                              Goodix550aBridgeIdentificationInfo *info);
+
+int goodix550a_bridge_identification_copy_scanned_tgla (Goodix550aBridgeIdentification *identification,
+                                                         uint8_t                          *output,
+                                                         size_t                            output_length,
+                                                         size_t                           *written);
+
+const char *goodix550a_bridge_identification_last_error (const Goodix550aBridgeIdentification *identification);
 
 const char *goodix550a_bridge_firmware_name (Goodix550aBridgeFirmware firmware);
 const char *goodix550a_bridge_status_message (int status);

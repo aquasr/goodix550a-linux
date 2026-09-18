@@ -1261,6 +1261,11 @@ pub enum Gf3258LibfprintWireError {
     VerificationTemplate(String),
     Verification(String),
     VerificationResultNotReady,
+    IdentificationTemplate(String),
+    Identification(String),
+    IdentificationAlreadyStarted,
+    IdentificationResultNotReady,
+    IdentificationScannedTglaNotReady,
 }
 
 impl fmt::Display for Gf3258LibfprintWireError {
@@ -1433,6 +1438,17 @@ impl fmt::Display for Gf3258LibfprintWireError {
             }
             Self::Verification(message) => write!(f, "verification error: {message}"),
             Self::VerificationResultNotReady => f.write_str("verification result is not ready"),
+            Self::IdentificationTemplate(message) => {
+                write!(f, "identification template error: {message}")
+            }
+            Self::Identification(message) => write!(f, "identification error: {message}"),
+            Self::IdentificationAlreadyStarted => {
+                f.write_str("identification capture has already started")
+            }
+            Self::IdentificationResultNotReady => f.write_str("identification result is not ready"),
+            Self::IdentificationScannedTglaNotReady => {
+                f.write_str("identification scanned TGLA is not ready")
+            }
         }
     }
 }
@@ -2616,6 +2632,308 @@ impl Gf3258LibfprintVerificationEngine {
     }
 }
 
+/// Final semantic result of one libfprint identify action.
+///
+/// Retry is an acquisition failure and therefore has no scanned print.
+/// Match and NoMatch are terminal identification results. `match_index`
+/// refers to the caller-provided gallery order and is present only for Match.
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gf3258LibfprintIdentificationDisposition {
+    Retry = 1,
+    Match = 2,
+    NoMatch = 3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Gf3258LibfprintIdentificationResult {
+    disposition: Gf3258LibfprintIdentificationDisposition,
+    score: i32,
+    match_index: Option<usize>,
+    protected_bytes: usize,
+    pixel_count: usize,
+    stored_crc: u32,
+    scanned_tgla_bytes: usize,
+}
+
+impl Gf3258LibfprintIdentificationResult {
+    #[must_use]
+    pub const fn disposition(self) -> Gf3258LibfprintIdentificationDisposition {
+        self.disposition
+    }
+
+    #[must_use]
+    pub const fn score(self) -> i32 {
+        self.score
+    }
+
+    #[must_use]
+    pub const fn match_index(self) -> Option<usize> {
+        self.match_index
+    }
+
+    #[must_use]
+    pub const fn protected_bytes(self) -> usize {
+        self.protected_bytes
+    }
+
+    #[must_use]
+    pub const fn pixel_count(self) -> usize {
+        self.pixel_count
+    }
+
+    #[must_use]
+    pub const fn stored_crc(self) -> u32 {
+        self.stored_crc
+    }
+
+    #[must_use]
+    pub const fn scanned_tgla_bytes(self) -> usize {
+        self.scanned_tgla_bytes
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Gf3258IdentificationScoreAccumulator {
+    best_score: Option<i32>,
+    best_match: Option<(usize, i32)>,
+}
+
+impl Gf3258IdentificationScoreAccumulator {
+    const fn new() -> Self {
+        Self {
+            best_score: None,
+            best_match: None,
+        }
+    }
+
+    fn observe(&mut self, index: usize, decision: Gf3258GalleryVerificationDecision, score: i32) {
+        self.best_score = Some(self.best_score.map_or(score, |current| current.max(score)));
+
+        if decision == Gf3258GalleryVerificationDecision::Match {
+            match self.best_match {
+                Some((_, current_score)) if score <= current_score => {}
+                _ => self.best_match = Some((index, score)),
+            }
+        }
+    }
+
+    fn finish(self) -> (Gf3258LibfprintIdentificationDisposition, Option<usize>, i32) {
+        match self.best_match {
+            Some((index, score)) => (
+                Gf3258LibfprintIdentificationDisposition::Match,
+                Some(index),
+                score,
+            ),
+            None => (
+                Gf3258LibfprintIdentificationDisposition::NoMatch,
+                None,
+                self.best_score.unwrap_or(0),
+            ),
+        }
+    }
+}
+
+/// Callback-driven 1:N identification transaction for one physical touch.
+///
+/// Every persisted TGLA is decoded before the first USB action. The sensor is
+/// captured exactly once. The reconstructed raw frame is then evaluated
+/// independently against every enrolled gallery using the same public
+/// verification workflow and terminal score interpretation used by ordinary
+/// single-template verification.
+///
+/// The highest-scoring terminal Match wins. A tie preserves the earlier gallery
+/// index, making the result deterministic without introducing a second
+/// biometric threshold or tie-breaking policy.
+pub struct Gf3258LibfprintIdentificationEngine {
+    capture: Gf3258LibfprintCaptureEngine,
+    templates: Vec<Gf3258VerificationTemplate>,
+    started: bool,
+    result: Option<Gf3258LibfprintIdentificationResult>,
+    scanned_tgla: Option<Vec<u8>>,
+}
+
+impl Gf3258LibfprintIdentificationEngine {
+    /// Create an identification transaction with the first gallery entry.
+    ///
+    /// At least one enrolled template is therefore structurally required by
+    /// construction. Additional templates may be added until the first physical
+    /// action is requested.
+    pub fn new(tgla: &[u8]) -> Result<Self, Gf3258LibfprintWireError> {
+        let template = Gf3258VerificationTemplate::from_tgla(tgla)
+            .map_err(|error| Gf3258LibfprintWireError::IdentificationTemplate(error.to_string()))?;
+
+        Ok(Self {
+            capture: Gf3258LibfprintCaptureEngine::new()?,
+            templates: vec![template],
+            started: false,
+            result: None,
+            scanned_tgla: None,
+        })
+    }
+
+    /// Add another persisted gallery before physical capture starts.
+    pub fn add_template(&mut self, tgla: &[u8]) -> Result<(), Gf3258LibfprintWireError> {
+        if self.started || self.result.is_some() {
+            return Err(Gf3258LibfprintWireError::IdentificationAlreadyStarted);
+        }
+
+        let template = Gf3258VerificationTemplate::from_tgla(tgla)
+            .map_err(|error| Gf3258LibfprintWireError::IdentificationTemplate(error.to_string()))?;
+
+        self.templates.push(template);
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn gallery_len(&self) -> usize {
+        self.templates.len()
+    }
+
+    #[must_use]
+    pub const fn stage(&self) -> Gf3258LibfprintCaptureStage {
+        self.capture.stage()
+    }
+
+    /// Request the next physical action.
+    ///
+    /// Calling this for the first time freezes the gallery. This prevents a
+    /// caller from changing authentication candidates after capture begins.
+    pub fn next_action(
+        &mut self,
+        output: &mut [u8],
+    ) -> Result<Gf3258LibfprintCaptureAction, Gf3258LibfprintWireError> {
+        self.started = true;
+        self.capture.next_action(output)
+    }
+
+    /// Feed one completed libfprint-owned transfer into identification.
+    ///
+    /// Matching runs exactly once, after FDT-up has finalized the single
+    /// reconstructed sensor frame.
+    pub fn complete_transfer(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<Gf3258LibfprintCaptureProgress, Gf3258LibfprintWireError> {
+        let progress = self.capture.complete_transfer(bytes)?;
+
+        if self.capture.stage() == Gf3258LibfprintCaptureStage::Complete && self.result.is_none() {
+            self.finish_identification()?;
+        }
+
+        Ok(progress)
+    }
+
+    pub fn result(&self) -> Result<Gf3258LibfprintIdentificationResult, Gf3258LibfprintWireError> {
+        self.result
+            .ok_or(Gf3258LibfprintWireError::IdentificationResultNotReady)
+    }
+
+    /// Driver-private one-touch print representing the scanned finger.
+    ///
+    /// libfprint identification requires the driver to report the scanned print
+    /// even when no enrolled gallery entry matches. We encode that print with
+    /// the same versioned TGLA representation used by enrollment.
+    pub fn scanned_tgla(&self) -> Result<&[u8], Gf3258LibfprintWireError> {
+        self.scanned_tgla
+            .as_deref()
+            .ok_or(Gf3258LibfprintWireError::IdentificationScannedTglaNotReady)
+    }
+
+    fn finish_identification(&mut self) -> Result<(), Gf3258LibfprintWireError> {
+        let capture = self.capture.result()?;
+        let raw_u16 = capture.raw_u16();
+
+        /*
+         * First materialize a legitimate one-touch driver-private print for
+         * libfprint's identify-report contract.
+         *
+         * If the frame cannot even become one retained enrollment sample, treat
+         * it as a retryable acquisition rather than manufacturing a fake FpPrint.
+         */
+        let mut scanned_workflow = Gf3258EnrollmentWorkflow::new();
+        let scanned_outcome = scanned_workflow
+            .process_raw_frame(raw_u16)
+            .map_err(|error| Gf3258LibfprintWireError::Identification(error.to_string()))?;
+
+        if matches!(scanned_outcome, Gf3258EnrollmentFrameOutcome::Rejected(_)) {
+            self.scanned_tgla = None;
+            self.result = Some(Gf3258LibfprintIdentificationResult {
+                disposition: Gf3258LibfprintIdentificationDisposition::Retry,
+                score: 0,
+                match_index: None,
+                protected_bytes: capture.protected_bytes(),
+                pixel_count: capture.pixel_count(),
+                stored_crc: capture.stored_crc(),
+                scanned_tgla_bytes: 0,
+            });
+            return Ok(());
+        }
+
+        let scanned_artifacts = scanned_workflow
+            .encode_artifacts()
+            .map_err(|error| Gf3258LibfprintWireError::Identification(error.to_string()))?;
+
+        let scanned_tgla = scanned_artifacts.tgla_template().to_vec();
+
+        // Do not expose a scanned print that the verification decoder itself
+        // cannot reopen.
+        Gf3258VerificationTemplate::from_tgla(&scanned_tgla).map_err(|error| {
+            Gf3258LibfprintWireError::Identification(format!(
+                "scanned TGLA validation failed: {error}"
+            ))
+        })?;
+
+        let mut scores = Gf3258IdentificationScoreAccumulator::new();
+
+        /*
+         * Use a fresh verification workflow for every enrolled gallery. This
+         * deliberately reuses the exact existing single-template verification
+         * boundary rather than introducing a parallel identification matcher.
+         *
+         * The physical sensor frame is still captured only once.
+         */
+        for (index, template) in self.templates.iter().enumerate() {
+            let mut workflow = Gf3258VerificationWorkflow::new();
+            let outcome = workflow
+                .verify_raw_frame(template, raw_u16)
+                .map_err(|error| Gf3258LibfprintWireError::Identification(error.to_string()))?;
+
+            let Gf3258RawFrameVerificationOutcome::Verified(verification) = outcome else {
+                self.scanned_tgla = None;
+                self.result = Some(Gf3258LibfprintIdentificationResult {
+                    disposition: Gf3258LibfprintIdentificationDisposition::Retry,
+                    score: 0,
+                    match_index: None,
+                    protected_bytes: capture.protected_bytes(),
+                    pixel_count: capture.pixel_count(),
+                    stored_crc: capture.stored_crc(),
+                    scanned_tgla_bytes: 0,
+                });
+                return Ok(());
+            };
+
+            scores.observe(index, verification.decision(), verification.score());
+        }
+
+        let (disposition, match_index, score) = scores.finish();
+
+        let scanned_tgla_bytes = scanned_tgla.len();
+        self.scanned_tgla = Some(scanned_tgla);
+        self.result = Some(Gf3258LibfprintIdentificationResult {
+            disposition,
+            score,
+            match_index,
+            protected_bytes: capture.protected_bytes(),
+            pixel_count: capture.pixel_count(),
+            stored_crc: capture.stored_crc(),
+            scanned_tgla_bytes,
+        });
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PacketDisposition {
     Accepted,
@@ -3419,6 +3737,113 @@ mod tests {
             engine.result(),
             Err(Gf3258LibfprintWireError::VerificationResultNotReady)
         );
+    }
+
+    #[test]
+    fn identification_score_accumulator_prefers_highest_match() {
+        let mut scores = Gf3258IdentificationScoreAccumulator::new();
+
+        scores.observe(0, Gf3258GalleryVerificationDecision::Match, 21);
+        scores.observe(1, Gf3258GalleryVerificationDecision::Match, 46);
+        scores.observe(2, Gf3258GalleryVerificationDecision::NoMatch, -2);
+
+        assert_eq!(
+            scores.finish(),
+            (Gf3258LibfprintIdentificationDisposition::Match, Some(1), 46,)
+        );
+    }
+
+    #[test]
+    fn identification_score_accumulator_preserves_earlier_match_on_tie() {
+        let mut scores = Gf3258IdentificationScoreAccumulator::new();
+
+        scores.observe(2, Gf3258GalleryVerificationDecision::Match, 33);
+        scores.observe(5, Gf3258GalleryVerificationDecision::Match, 33);
+
+        assert_eq!(
+            scores.finish(),
+            (Gf3258LibfprintIdentificationDisposition::Match, Some(2), 33,)
+        );
+    }
+
+    #[test]
+    fn identification_score_accumulator_keeps_best_no_match_score() {
+        let mut scores = Gf3258IdentificationScoreAccumulator::new();
+
+        scores.observe(0, Gf3258GalleryVerificationDecision::NoMatch, -11);
+        scores.observe(1, Gf3258GalleryVerificationDecision::NoMatch, -3);
+        scores.observe(2, Gf3258GalleryVerificationDecision::NoMatch, -8);
+
+        assert_eq!(
+            scores.finish(),
+            (Gf3258LibfprintIdentificationDisposition::NoMatch, None, -3,)
+        );
+    }
+
+    #[test]
+    fn identification_engine_rejects_malformed_first_template_before_capture() {
+        assert!(matches!(
+            Gf3258LibfprintIdentificationEngine::new(b"not-a-template"),
+            Err(Gf3258LibfprintWireError::IdentificationTemplate(_))
+        ));
+    }
+
+    #[test]
+    fn identification_engine_accepts_multiple_templates_before_capture() {
+        let tgla = synthetic_nonempty_tgla();
+        let mut engine = Gf3258LibfprintIdentificationEngine::new(&tgla).unwrap();
+
+        engine.add_template(&tgla).unwrap();
+        assert_eq!(engine.gallery_len(), 2);
+        assert_eq!(engine.stage(), Gf3258LibfprintCaptureStage::D2Write);
+
+        let mut out = [0u8; GF3258_LIBFPRINT_USB_OUT_BLOCK_SIZE];
+        let action = engine.next_action(&mut out).unwrap();
+
+        assert_eq!(action.stage(), Gf3258LibfprintCaptureStage::D2Write);
+        assert_eq!(action.direction(), Gf3258LibfprintTransferDirection::Out);
+        assert_eq!(out[4], Command::TlsPovImage.as_u8());
+    }
+
+    #[test]
+    fn identification_engine_rejects_malformed_additional_template() {
+        let tgla = synthetic_nonempty_tgla();
+        let mut engine = Gf3258LibfprintIdentificationEngine::new(&tgla).unwrap();
+
+        assert!(matches!(
+            engine.add_template(b"not-a-template"),
+            Err(Gf3258LibfprintWireError::IdentificationTemplate(_))
+        ));
+        assert_eq!(engine.gallery_len(), 1);
+    }
+
+    #[test]
+    fn identification_gallery_is_frozen_when_capture_starts() {
+        let tgla = synthetic_nonempty_tgla();
+        let mut engine = Gf3258LibfprintIdentificationEngine::new(&tgla).unwrap();
+        let mut out = [0u8; GF3258_LIBFPRINT_USB_OUT_BLOCK_SIZE];
+
+        engine.next_action(&mut out).unwrap();
+
+        assert_eq!(
+            engine.add_template(&tgla),
+            Err(Gf3258LibfprintWireError::IdentificationAlreadyStarted)
+        );
+    }
+
+    #[test]
+    fn identification_outputs_are_unavailable_before_capture_finishes() {
+        let tgla = synthetic_nonempty_tgla();
+        let engine = Gf3258LibfprintIdentificationEngine::new(&tgla).unwrap();
+
+        assert_eq!(
+            engine.result(),
+            Err(Gf3258LibfprintWireError::IdentificationResultNotReady)
+        );
+        assert!(matches!(
+            engine.scanned_tgla(),
+            Err(Gf3258LibfprintWireError::IdentificationScannedTglaNotReady)
+        ));
     }
 
     const LIVE_OTP: [u8; OTP_LEN] = [

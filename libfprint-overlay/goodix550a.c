@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 /*
- * Goodix 27c6:550a libfprint Rust capture/enrollment/verification bridge.
+ * Goodix 27c6:550a libfprint Rust capture/enrollment/verification/identification bridge.
  *
  * USB ownership and asynchronous scheduling stay in libfprint. Goodix wire
  * construction/parsing, D2 session state, FDT/GetImage ordering, image
@@ -107,6 +107,7 @@ struct _FpiDeviceGoodix550a
   Goodix550aBridgeCapture *capture;
   Goodix550aBridgeEnrollment *enrollment;
   Goodix550aBridgeVerification *verification;
+  Goodix550aBridgeIdentification *identification;
   gboolean claimed;
   gboolean mcu_power_lost;
   Goodix550aBridgeFirmware firmware;
@@ -147,6 +148,7 @@ static void recovery_schedule_next (FpiDeviceGoodix550a *self);
 static void capture_schedule_next (FpiDeviceGoodix550a *self);
 static void enrollment_schedule_next (FpiDeviceGoodix550a *self);
 static void verification_schedule_next (FpiDeviceGoodix550a *self);
+static void identification_schedule_next (FpiDeviceGoodix550a *self);
 
 static GError *
 protocol_error (const gchar *message)
@@ -1890,6 +1892,314 @@ verification_schedule_next (FpiDeviceGoodix550a *self)
                            GUINT_TO_POINTER (action.direction));
 }
 
+static GError *
+identification_bridge_error (FpiDeviceGoodix550a *self,
+                             const gchar         *operation,
+                             gint                 status)
+{
+  const gchar *detail = self->identification
+                          ? goodix550a_bridge_identification_last_error (self->identification)
+                          : NULL;
+
+  return fpi_device_error_new_msg (FP_DEVICE_ERROR_PROTO,
+                                   "%s: %s (%s)",
+                                   operation,
+                                   detail ? detail : "identification bridge unavailable",
+                                   goodix550a_bridge_status_message (status));
+}
+
+static const gchar *
+identification_disposition_name (guint32 disposition)
+{
+  switch (disposition)
+    {
+    case GOODIX550A_BRIDGE_IDENTIFY_RETRY:
+      return "RETRY";
+    case GOODIX550A_BRIDGE_IDENTIFY_MATCH:
+      return "MATCH";
+    case GOODIX550A_BRIDGE_IDENTIFY_NO_MATCH:
+      return "NO_MATCH";
+    default:
+      return "INVALID";
+    }
+}
+
+static void
+identification_clear (FpiDeviceGoodix550a *self)
+{
+  if (!self->identification)
+    return;
+
+  goodix550a_bridge_identification_free (self->identification);
+  self->identification = NULL;
+}
+
+static void
+identification_fail (FpiDeviceGoodix550a *self,
+                     GError              *error)
+{
+  identification_clear (self);
+  fpi_device_identify_complete (FP_DEVICE (self), error);
+}
+
+static void
+identification_finish_success (FpiDeviceGoodix550a *self)
+{
+  Goodix550aBridgeIdentificationInfo info = { 0 };
+  GPtrArray *gallery = NULL;
+  FpPrint *match = NULL;
+  FpPrint *scanned = NULL;
+  g_autofree guint8 *scanned_tgla = NULL;
+  g_autoptr(GVariant) tgla_variant = NULL;
+  g_autoptr(GVariant) print_data = NULL;
+  size_t written = 0;
+  gint status;
+
+  status = goodix550a_bridge_identification_result (self->identification, &info);
+  if (status != GOODIX550A_BRIDGE_OK)
+    {
+      identification_fail (self,
+                           identification_bridge_error (self,
+                                                        "Rust identification result failed",
+                                                        status));
+      return;
+    }
+
+  if (info.disposition != GOODIX550A_BRIDGE_IDENTIFY_RETRY &&
+      info.disposition != GOODIX550A_BRIDGE_IDENTIFY_MATCH &&
+      info.disposition != GOODIX550A_BRIDGE_IDENTIFY_NO_MATCH)
+    {
+      identification_fail (self,
+                           protocol_error ("Rust identification returned an invalid disposition"));
+      return;
+    }
+
+  fp_info ("Rust-core identification: disposition=%s score=%d match-index=%zu protected=%zuB crc=0x%08x pixels=%zu",
+           identification_disposition_name (info.disposition),
+           info.score,
+           info.match_index,
+           info.protected_bytes,
+           info.stored_crc,
+           info.pixel_count);
+
+  if (info.disposition == GOODIX550A_BRIDGE_IDENTIFY_RETRY)
+    {
+      identification_clear (self);
+      fpi_device_identify_report (FP_DEVICE (self),
+                                  NULL,
+                                  NULL,
+                                  fpi_device_retry_new (FP_DEVICE_RETRY_GENERAL));
+      fpi_device_identify_complete (FP_DEVICE (self), NULL);
+      return;
+    }
+
+  if (info.scanned_tgla_bytes == 0)
+    {
+      identification_fail (self,
+                           protocol_error ("Rust identification completed without a scanned TGLA"));
+      return;
+    }
+
+  fpi_device_get_identify_data (FP_DEVICE (self), &gallery);
+  if (!gallery)
+    {
+      identification_fail (self,
+                           protocol_error ("libfprint identification gallery disappeared"));
+      return;
+    }
+
+  if (info.disposition == GOODIX550A_BRIDGE_IDENTIFY_MATCH)
+    {
+      if (info.match_index >= gallery->len)
+        {
+          identification_fail (self,
+                               protocol_error ("Rust identification returned an out-of-range gallery index"));
+          return;
+        }
+
+      match = g_ptr_array_index (gallery, info.match_index);
+      if (!match)
+        {
+          identification_fail (self,
+                               protocol_error ("libfprint identification gallery contains a null matched print"));
+          return;
+        }
+    }
+
+  scanned_tgla = g_malloc (info.scanned_tgla_bytes);
+
+  status = goodix550a_bridge_identification_copy_scanned_tgla (self->identification,
+                                                               scanned_tgla,
+                                                               info.scanned_tgla_bytes,
+                                                               &written);
+  if (status != GOODIX550A_BRIDGE_OK)
+    {
+      identification_fail (self,
+                           identification_bridge_error (self,
+                                                        "Rust identification scanned-TGLA copy failed",
+                                                        status));
+      return;
+    }
+
+  if (written != info.scanned_tgla_bytes)
+    {
+      identification_fail (self,
+                           protocol_error ("Rust identification scanned-TGLA length changed during copy"));
+      return;
+    }
+
+  /*
+   * libfprint requires identify to return a scanned FpPrint even for a
+   * legitimate NO_MATCH. Keep its private representation identical to
+   * enrollment: FPI_PRINT_RAW containing versioned (uay) TGLA data.
+   */
+  scanned = fp_print_new (FP_DEVICE (self));
+  if (!scanned)
+    {
+      identification_fail (self,
+                           fpi_device_error_new (FP_DEVICE_ERROR_GENERAL));
+      return;
+    }
+
+  fpi_print_set_type (scanned, FPI_PRINT_RAW);
+
+  tgla_variant = g_variant_ref_sink (
+    g_variant_new_fixed_array (G_VARIANT_TYPE_BYTE,
+                               scanned_tgla,
+                               written,
+                               sizeof (guint8)));
+
+  print_data = g_variant_ref_sink (
+    g_variant_new ("(u@ay)",
+                   GOODIX550A_PRINT_VERSION,
+                   g_variant_ref (tgla_variant)));
+
+  g_object_set (scanned, "fpi-data", print_data, NULL);
+
+  identification_clear (self);
+
+  /*
+   * `match` is borrowed from libfprint's gallery.
+   * `scanned` is the newly created floating FpPrint expected by the report API.
+   */
+  fpi_device_identify_report (FP_DEVICE (self),
+                              match,
+                              scanned,
+                              NULL);
+
+  fpi_device_identify_complete (FP_DEVICE (self), NULL);
+}
+
+static void
+identification_transfer_cb (FpiUsbTransfer *transfer,
+                            FpDevice       *device,
+                            gpointer        user_data,
+                            GError         *error)
+{
+  FpiDeviceGoodix550a *self = FPI_DEVICE_GOODIX550A (device);
+  Goodix550aBridgeTransferDirection direction =
+    (Goodix550aBridgeTransferDirection) GPOINTER_TO_UINT (user_data);
+  const guint8 *input = NULL;
+  gsize input_length = 0;
+  guint8 advanced = 0;
+  gint status;
+
+  if (error)
+    {
+      identification_fail (self, error);
+      return;
+    }
+
+  if (direction == GOODIX550A_BRIDGE_TRANSFER_IN)
+    {
+      input = transfer->buffer;
+      input_length = transfer->actual_length;
+    }
+
+  status = goodix550a_bridge_identification_complete_transfer (self->identification,
+                                                               input,
+                                                               input_length,
+                                                               &advanced);
+  if (status != GOODIX550A_BRIDGE_OK)
+    {
+      identification_fail (self,
+                           identification_bridge_error (self,
+                                                        "Rust identification transfer parser failed",
+                                                        status));
+      return;
+    }
+
+  if (!advanced)
+    fp_dbg ("Rust identification ignored unrelated IN packet; repeating stage");
+
+  identification_schedule_next (self);
+}
+
+static void
+identification_schedule_next (FpiDeviceGoodix550a *self)
+{
+  Goodix550aBridgeIdentificationAction action = { 0 };
+  guint8 output[GOODIX550A_USB_BLOCK_SIZE] = { 0 };
+  FpiUsbTransfer *transfer;
+  gint status;
+
+  status = goodix550a_bridge_identification_next_action (self->identification,
+                                                         &action,
+                                                         output,
+                                                         sizeof (output));
+  if (status != GOODIX550A_BRIDGE_OK)
+    {
+      identification_fail (self,
+                           identification_bridge_error (self,
+                                                        "Rust identification action failed",
+                                                        status));
+      return;
+    }
+
+  if (action.direction == GOODIX550A_BRIDGE_TRANSFER_COMPLETE)
+    {
+      identification_finish_success (self);
+      return;
+    }
+
+  if (action.direction != GOODIX550A_BRIDGE_TRANSFER_OUT &&
+      action.direction != GOODIX550A_BRIDGE_TRANSFER_IN)
+    {
+      identification_fail (self,
+                           protocol_error ("Rust identification returned an invalid transfer direction"));
+      return;
+    }
+
+  if (action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT &&
+      action.transfer_length > sizeof (output))
+    {
+      identification_fail (self,
+                           protocol_error ("Rust identification OUT action exceeds the bridge scratch buffer"));
+      return;
+    }
+
+  transfer = fpi_usb_transfer_new (FP_DEVICE (self));
+  fpi_usb_transfer_fill_bulk (transfer, action.endpoint, action.transfer_length);
+
+  if (action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT)
+    memcpy (transfer->buffer, output, action.transfer_length);
+
+  fpi_usb_transfer_set_short_error (transfer, action.short_is_error != 0);
+
+  fp_dbg ("Rust identify stage=%u direction=%s endpoint=0x%02x length=%zu timeout=%u",
+          action.stage,
+          action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT ? "OUT" : "IN",
+          (guint) action.endpoint,
+          action.transfer_length,
+          action.timeout_ms);
+
+  fpi_usb_transfer_submit (transfer,
+                           action.timeout_ms,
+                           fpi_device_get_cancellable (FP_DEVICE (self)),
+                           identification_transfer_cb,
+                           GUINT_TO_POINTER (action.direction));
+}
+
 static void
 probe_release_and_close (FpiDeviceGoodix550a *self)
 {
@@ -1994,6 +2304,7 @@ dev_close (FpDevice *device)
   capture_clear (self);
   enrollment_clear (self);
   verification_clear (self);
+  identification_clear (self);
 
   if (self->claimed)
     {
@@ -2042,7 +2353,7 @@ dev_capture (FpDevice *device)
       return;
     }
 
-  if (self->capture || self->enrollment || self->verification)
+  if (self->capture || self->enrollment || self->verification || self->identification)
     {
       fpi_device_capture_complete (device,
                                    NULL,
@@ -2088,7 +2399,7 @@ dev_enroll (FpDevice *device)
       return;
     }
 
-  if (self->enrollment || self->verification || self->capture)
+  if (self->enrollment || self->verification || self->capture || self->identification)
     {
       fpi_device_enroll_complete (device, NULL, fpi_device_error_new (FP_DEVICE_ERROR_BUSY));
       return;
@@ -2157,7 +2468,7 @@ dev_verify (FpDevice *device)
       return;
     }
 
-  if (self->verification || self->enrollment || self->capture)
+  if (self->verification || self->enrollment || self->capture || self->identification)
     {
       fpi_device_verify_complete (device, fpi_device_error_new (FP_DEVICE_ERROR_BUSY));
       return;
@@ -2215,12 +2526,166 @@ dev_verify (FpDevice *device)
 }
 
 static void
+dev_identify (FpDevice *device)
+{
+  FpiDeviceGoodix550a *self = FPI_DEVICE_GOODIX550A (device);
+  GPtrArray *gallery = NULL;
+  guint i;
+
+  if (self->firmware != GOODIX550A_BRIDGE_FIRMWARE_APP15045)
+    {
+      fpi_device_identify_complete (device,
+                                    fpi_device_error_new_msg (FP_DEVICE_ERROR_NOT_SUPPORTED,
+                                                              "GF3258 identification requires APP15045"));
+      return;
+    }
+
+  if (self->mcu_power_lost)
+    {
+      fpi_device_identify_complete (device,
+                                    fpi_device_error_new_msg (FP_DEVICE_ERROR_PROTO,
+                                                              "GF3258 volatile configuration must be restored before identification"));
+      return;
+    }
+
+  if (self->identification ||
+      self->verification ||
+      self->enrollment ||
+      self->capture)
+    {
+      fpi_device_identify_complete (device,
+                                    fpi_device_error_new (FP_DEVICE_ERROR_BUSY));
+      return;
+    }
+
+  fpi_device_get_identify_data (device, &gallery);
+
+  if (!gallery)
+    {
+      fpi_device_identify_complete (device,
+                                    fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
+                                                              "GF3258 identification gallery is missing"));
+      return;
+    }
+
+  /*
+   * This host-side driver has no sensor-resident fingerprint database.
+   * Identification therefore requires at least one host-provided enrollment.
+   */
+  if (gallery->len == 0)
+    {
+      fpi_device_identify_complete (device,
+                                    fpi_device_error_new_msg (FP_DEVICE_ERROR_NOT_SUPPORTED,
+                                                              "GF3258 has no device-resident prints for an empty identification gallery"));
+      return;
+    }
+
+  /*
+   * Strictly decode every persisted FpPrint before requesting D2. This keeps
+   * malformed host-side state from causing any physical sensor transaction.
+   */
+  for (i = 0; i < gallery->len; i++)
+    {
+      FpPrint *print = g_ptr_array_index (gallery, i);
+      g_autoptr(GVariant) print_data = NULL;
+      g_autoptr(GVariant) tgla_variant = NULL;
+      const guint8 *tgla;
+      gsize tgla_length = 0;
+      guint32 version = 0;
+      gint status;
+
+      if (!print)
+        {
+          identification_clear (self);
+          fpi_device_identify_complete (
+            device,
+            fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
+                                      "GF3258 identification gallery contains a null print"));
+          return;
+        }
+
+      g_object_get (print, "fpi-data", &print_data, NULL);
+
+      if (!print_data ||
+          !g_variant_is_of_type (print_data,
+                                 G_VARIANT_TYPE (GOODIX550A_PRINT_TYPE)))
+        {
+          identification_clear (self);
+          fpi_device_identify_complete (
+            device,
+            fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
+                                      "GF3258 identification print %u is not a versioned TGLA payload",
+                                      i));
+          return;
+        }
+
+      g_variant_get (print_data, "(u@ay)", &version, &tgla_variant);
+
+      if (version != GOODIX550A_PRINT_VERSION)
+        {
+          identification_clear (self);
+          fpi_device_identify_complete (
+            device,
+            fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
+                                      "unsupported GF3258 identification print-data version %u at gallery index %u",
+                                      version,
+                                      i));
+          return;
+        }
+
+      tgla = g_variant_get_fixed_array (tgla_variant,
+                                        &tgla_length,
+                                        sizeof (guint8));
+
+      if (!tgla || tgla_length == 0)
+        {
+          identification_clear (self);
+          fpi_device_identify_complete (
+            device,
+            fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
+                                      "GF3258 identification print %u contains an empty TGLA payload",
+                                      i));
+          return;
+        }
+
+      if (i == 0)
+        status = goodix550a_bridge_identification_new (tgla,
+                                                       tgla_length,
+                                                       &self->identification);
+      else
+        status = goodix550a_bridge_identification_add_template (self->identification,
+                                                                tgla,
+                                                                tgla_length);
+
+      if (status != GOODIX550A_BRIDGE_OK)
+        {
+          g_autofree gchar *detail = self->identification
+                                       ? g_strdup (goodix550a_bridge_identification_last_error (self->identification))
+                                       : NULL;
+
+          identification_clear (self);
+          fpi_device_identify_complete (
+            device,
+            fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
+                                      "Rust rejected GF3258 identification gallery index %u before capture: %s",
+                                      i,
+                                      detail ? detail : goodix550a_bridge_status_message (status)));
+          return;
+        }
+    }
+
+  fp_info ("Rust-core identification gallery accepted: prints=%u", gallery->len);
+  identification_schedule_next (self);
+}
+
+static void
 dev_cancel (FpDevice *device)
 {
   /*
    * Every interactive transfer carries the action GCancellable. Cancellation
    * therefore completes the current FpiUsbTransfer with G_IO_ERROR_CANCELLED;
-   * the active capture/enrollment/verification callback terminates its bridge transaction.
+   * the active capture/enrollment/verification/identification callback terminates
+   * its bridge transaction.
    */
   (void) device;
 }
@@ -2240,6 +2705,7 @@ fpi_device_goodix550a_init (FpiDeviceGoodix550a *self)
   self->capture = NULL;
   self->enrollment = NULL;
   self->verification = NULL;
+  self->identification = NULL;
   self->claimed = FALSE;
   self->mcu_power_lost = FALSE;
   self->firmware = GOODIX550A_BRIDGE_FIRMWARE_UNKNOWN;
@@ -2268,6 +2734,7 @@ fpi_device_goodix550a_class_init (FpiDeviceGoodix550aClass *klass)
   dev_class->capture = dev_capture;
   dev_class->enroll = dev_enroll;
   dev_class->verify = dev_verify;
+  dev_class->identify = dev_identify;
   dev_class->cancel = dev_cancel;
 
   fpi_device_class_auto_initialize_features (dev_class);

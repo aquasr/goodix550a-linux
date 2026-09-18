@@ -9,14 +9,15 @@ use goodix_info::libfprint_wire::{
     Gf3258LibfprintBootstrapEngine, Gf3258LibfprintBootstrapProgress, Gf3258LibfprintCaptureEngine,
     Gf3258LibfprintCaptureProgress, Gf3258LibfprintEnrollmentDisposition,
     Gf3258LibfprintEnrollmentEngine, Gf3258LibfprintFirmwareIdentity,
+    Gf3258LibfprintIdentificationDisposition, Gf3258LibfprintIdentificationEngine,
     Gf3258LibfprintRecoveryEngine, Gf3258LibfprintTransferDirection,
-    Gf3258LibfprintVerificationDisposition,
-    Gf3258LibfprintVerificationEngine, gf3258_libfprint_build_bootstrap_reset_request,
-    gf3258_libfprint_build_chip_id_request, gf3258_libfprint_build_get_version_request,
-    gf3258_libfprint_build_postboot_reset_request, gf3258_libfprint_parse_bootstrap_reset_ack,
-    gf3258_libfprint_parse_chip_id_ack, gf3258_libfprint_parse_get_version_ack,
-    gf3258_libfprint_parse_get_version_response, gf3258_libfprint_parse_postboot_reset_ack,
-    gf3258_libfprint_parse_postboot_reset_response, gf3258_libfprint_validate_chip_id_response,
+    Gf3258LibfprintVerificationDisposition, Gf3258LibfprintVerificationEngine,
+    gf3258_libfprint_build_bootstrap_reset_request, gf3258_libfprint_build_chip_id_request,
+    gf3258_libfprint_build_get_version_request, gf3258_libfprint_build_postboot_reset_request,
+    gf3258_libfprint_parse_bootstrap_reset_ack, gf3258_libfprint_parse_chip_id_ack,
+    gf3258_libfprint_parse_get_version_ack, gf3258_libfprint_parse_get_version_response,
+    gf3258_libfprint_parse_postboot_reset_ack, gf3258_libfprint_parse_postboot_reset_response,
+    gf3258_libfprint_validate_chip_id_response,
 };
 
 const STATUS_OK: i32 = 0;
@@ -32,6 +33,9 @@ const ENROLL_COMPLETE: u32 = 3;
 const VERIFY_RETRY: u32 = 1;
 const VERIFY_MATCH: u32 = 2;
 const VERIFY_NO_MATCH: u32 = 3;
+const IDENTIFY_RETRY: u32 = 1;
+const IDENTIFY_MATCH: u32 = 2;
+const IDENTIFY_NO_MATCH: u32 = 3;
 
 static STATUS_OK_TEXT: &[u8] = b"ok\0";
 static STATUS_INVALID_ARGUMENT_TEXT: &[u8] = b"invalid bridge argument\0";
@@ -128,9 +132,7 @@ impl InTransferDeadline {
 
                 // libusb interprets a zero timeout as an unbounded wait. Round a
                 // positive sub-millisecond remainder up to one millisecond.
-                let remaining_ms = remaining
-                    .as_millis()
-                    .clamp(1, u128::from(u32::MAX)) as u32;
+                let remaining_ms = remaining.as_millis().clamp(1, u128::from(u32::MAX)) as u32;
 
                 // A repeated request for the same logical IN stage may tighten
                 // its per-transfer timeout, but it must never extend the
@@ -342,6 +344,52 @@ impl Goodix550aBridgeVerification {
     fn new(tgla: &[u8]) -> Result<Self, String> {
         let engine =
             Gf3258LibfprintVerificationEngine::new(tgla).map_err(|error| error.to_string())?;
+        Ok(Self {
+            engine,
+            in_deadline: InTransferDeadline::default(),
+            last_error: cstring("ok"),
+        })
+    }
+
+    fn record_error(&mut self, error: impl ToString) -> i32 {
+        self.last_error = cstring(&error.to_string());
+        STATUS_PROTOCOL_ERROR
+    }
+}
+
+#[repr(C)]
+pub struct Goodix550aBridgeIdentificationAction {
+    direction: u32,
+    stage: u32,
+    transfer_length: usize,
+    timeout_ms: u32,
+    endpoint: u8,
+    short_is_error: u8,
+    reserved: u16,
+}
+
+#[repr(C)]
+pub struct Goodix550aBridgeIdentificationInfo {
+    disposition: u32,
+    score: i32,
+    match_index: usize,
+    protected_bytes: usize,
+    pixel_count: usize,
+    stored_crc: u32,
+    scanned_tgla_bytes: usize,
+}
+
+pub struct Goodix550aBridgeIdentification {
+    engine: Gf3258LibfprintIdentificationEngine,
+    in_deadline: InTransferDeadline,
+    last_error: CString,
+}
+
+impl Goodix550aBridgeIdentification {
+    fn new(tgla: &[u8]) -> Result<Self, String> {
+        let engine =
+            Gf3258LibfprintIdentificationEngine::new(tgla).map_err(|error| error.to_string())?;
+
         Ok(Self {
             engine,
             in_deadline: InTransferDeadline::default(),
@@ -1855,6 +1903,330 @@ pub unsafe extern "C" fn goodix550a_bridge_verification_last_error(
 }
 
 #[unsafe(no_mangle)]
+/// # Safety
+///
+/// `tgla` must point to `tgla_length` readable bytes. `identification` must
+/// point to writable storage for one opaque bridge pointer.
+pub unsafe extern "C" fn goodix550a_bridge_identification_new(
+    tgla: *const u8,
+    tgla_length: usize,
+    identification: *mut *mut Goodix550aBridgeIdentification,
+) -> i32 {
+    if identification.is_null() {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    /*
+     * A failed constructor must never leave a stale caller value looking like
+     * a live bridge handle.
+     */
+    // SAFETY: identification points to writable caller storage for one pointer.
+    unsafe {
+        ptr::write(identification, ptr::null_mut());
+    }
+
+    if tgla.is_null() || tgla_length == 0 {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    // SAFETY: caller guarantees tgla_length readable bytes for this call.
+    let tgla = unsafe { slice::from_raw_parts(tgla, tgla_length) };
+
+    let value = match Goodix550aBridgeIdentification::new(tgla) {
+        Ok(value) => value,
+        Err(_) => return STATUS_PROTOCOL_ERROR,
+    };
+
+    let raw = Box::into_raw(Box::new(value));
+
+    // SAFETY: identification points to writable caller storage for one pointer.
+    unsafe {
+        ptr::write(identification, raw);
+    }
+
+    STATUS_OK
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// `identification` must be a live bridge handle and `tgla` must point to
+/// `tgla_length` readable bytes.
+pub unsafe extern "C" fn goodix550a_bridge_identification_add_template(
+    identification: *mut Goodix550aBridgeIdentification,
+    tgla: *const u8,
+    tgla_length: usize,
+) -> i32 {
+    if identification.is_null() || tgla.is_null() || tgla_length == 0 {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    // SAFETY: handle and input storage are valid for this call.
+    let identification = unsafe { &mut *identification };
+    let tgla = unsafe { slice::from_raw_parts(tgla, tgla_length) };
+
+    match identification.engine.add_template(tgla) {
+        Ok(()) => STATUS_OK,
+        Err(error) => identification.record_error(error),
+    }
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// A non-null handle must have been returned by identification_new exactly
+/// once and must not be used after this call.
+pub unsafe extern "C" fn goodix550a_bridge_identification_free(
+    identification: *mut Goodix550aBridgeIdentification,
+) {
+    if identification.is_null() {
+        return;
+    }
+
+    // SAFETY: ownership originated from Box::into_raw in identification_new.
+    unsafe {
+        drop(Box::from_raw(identification));
+    }
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// All non-null pointers must be valid for the supplied lengths for the
+/// duration of this call.
+pub unsafe extern "C" fn goodix550a_bridge_identification_next_action(
+    identification: *mut Goodix550aBridgeIdentification,
+    action: *mut Goodix550aBridgeIdentificationAction,
+    output: *mut u8,
+    output_length: usize,
+) -> i32 {
+    if identification.is_null() || action.is_null() {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    // SAFETY: handle remains bridge-owned until identification_free.
+    let identification = unsafe { &mut *identification };
+
+    let mut empty = [];
+    let output = if output_length == 0 {
+        &mut empty[..]
+    } else {
+        if output.is_null() {
+            return STATUS_INVALID_ARGUMENT;
+        }
+
+        // SAFETY: caller supplied output_length writable bytes.
+        unsafe { slice::from_raw_parts_mut(output, output_length) }
+    };
+
+    let next = match identification.engine.next_action(output) {
+        Ok(next) => next,
+        Err(error) => return identification.record_error(error),
+    };
+
+    /*
+     * Identification deliberately receives the same absolute-IN-stage
+     * deadline protection as verify/enroll/capture. An ignored packet may
+     * resubmit an IN transfer, but may not purchase a fresh timeout budget.
+     */
+    let timeout_ms = match identification.in_deadline.timeout_for_action(
+        next.direction(),
+        next.stage() as u32,
+        next.timeout_ms(),
+    ) {
+        Ok(timeout_ms) => timeout_ms,
+        Err(error) => return identification.record_error(error),
+    };
+
+    let value = Goodix550aBridgeIdentificationAction {
+        direction: next.direction() as u32,
+        stage: next.stage() as u32,
+        transfer_length: next.transfer_length(),
+        timeout_ms,
+        endpoint: next.endpoint(),
+        short_is_error: u8::from(next.short_is_error()),
+        reserved: 0,
+    };
+
+    // SAFETY: action points to writable storage for one POD action.
+    unsafe {
+        ptr::write(action, value);
+    }
+
+    STATUS_OK
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// Input must contain `input_length` readable bytes when non-empty and
+/// `advanced` must point to one writable byte.
+pub unsafe extern "C" fn goodix550a_bridge_identification_complete_transfer(
+    identification: *mut Goodix550aBridgeIdentification,
+    input: *const u8,
+    input_length: usize,
+    advanced: *mut u8,
+) -> i32 {
+    if identification.is_null() || advanced.is_null() {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    // SAFETY: handle remains valid until identification_free.
+    let identification = unsafe { &mut *identification };
+
+    let bytes = if input_length == 0 {
+        &[][..]
+    } else {
+        if input.is_null() {
+            return STATUS_INVALID_ARGUMENT;
+        }
+
+        // SAFETY: caller supplied input_length readable bytes.
+        unsafe { slice::from_raw_parts(input, input_length) }
+    };
+
+    let progress = match identification.engine.complete_transfer(bytes) {
+        Ok(progress) => progress,
+        Err(error) => return identification.record_error(error),
+    };
+
+    let value = u8::from(matches!(progress, Gf3258LibfprintCaptureProgress::Advanced));
+
+    // SAFETY: advanced points to one writable byte.
+    unsafe {
+        ptr::write(advanced, value);
+    }
+
+    STATUS_OK
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// Both pointers must refer to live/writable storage for this call.
+pub unsafe extern "C" fn goodix550a_bridge_identification_result(
+    identification: *mut Goodix550aBridgeIdentification,
+    info: *mut Goodix550aBridgeIdentificationInfo,
+) -> i32 {
+    if identification.is_null() || info.is_null() {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    // SAFETY: handle remains valid until identification_free.
+    let identification = unsafe { &mut *identification };
+
+    let result = match identification.engine.result() {
+        Ok(result) => result,
+        Err(error) => return identification.record_error(error),
+    };
+
+    let disposition = match result.disposition() {
+        Gf3258LibfprintIdentificationDisposition::Retry => IDENTIFY_RETRY,
+        Gf3258LibfprintIdentificationDisposition::Match => IDENTIFY_MATCH,
+        Gf3258LibfprintIdentificationDisposition::NoMatch => IDENTIFY_NO_MATCH,
+    };
+
+    /*
+     * SIZE_MAX is only a transport sentinel. C must inspect disposition before
+     * using match_index. A Match is required to have a real gallery index.
+     */
+    let match_index = match result.match_index() {
+        Some(index) => index,
+        None => usize::MAX,
+    };
+
+    if disposition == IDENTIFY_MATCH && result.match_index().is_none() {
+        return identification
+            .record_error("identification Match result did not contain a gallery index");
+    }
+
+    if disposition != IDENTIFY_MATCH && result.match_index().is_some() {
+        return identification.record_error(
+            "non-Match identification result unexpectedly contained a gallery index",
+        );
+    }
+
+    let value = Goodix550aBridgeIdentificationInfo {
+        disposition,
+        score: result.score(),
+        match_index,
+        protected_bytes: result.protected_bytes(),
+        pixel_count: result.pixel_count(),
+        stored_crc: result.stored_crc(),
+        scanned_tgla_bytes: result.scanned_tgla_bytes(),
+    };
+
+    // SAFETY: info points to writable caller storage for one POD result.
+    unsafe {
+        ptr::write(info, value);
+    }
+
+    STATUS_OK
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// `output` must have at least `output_length` writable bytes and `written`
+/// must point to one writable size_t.
+pub unsafe extern "C" fn goodix550a_bridge_identification_copy_scanned_tgla(
+    identification: *mut Goodix550aBridgeIdentification,
+    output: *mut u8,
+    output_length: usize,
+    written: *mut usize,
+) -> i32 {
+    if identification.is_null() || written.is_null() {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    // SAFETY: handle remains valid until identification_free.
+    let identification = unsafe { &mut *identification };
+
+    let tgla = match identification.engine.scanned_tgla() {
+        Ok(tgla) => tgla,
+        Err(error) => return identification.record_error(error),
+    };
+
+    if output_length < tgla.len() {
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    if !tgla.is_empty() {
+        if output.is_null() {
+            return STATUS_INVALID_ARGUMENT;
+        }
+
+        // SAFETY: output has tgla.len() writable bytes and the regions do not overlap.
+        unsafe {
+            ptr::copy_nonoverlapping(tgla.as_ptr(), output, tgla.len());
+        }
+    }
+
+    // SAFETY: written points to one writable size_t.
+    unsafe {
+        ptr::write(written, tgla.len());
+    }
+
+    STATUS_OK
+}
+
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// The pointer must be null or a live identification bridge handle.
+pub unsafe extern "C" fn goodix550a_bridge_identification_last_error(
+    identification: *const Goodix550aBridgeIdentification,
+) -> *const c_char {
+    if identification.is_null() {
+        return c_text(STATUS_INVALID_ARGUMENT_TEXT);
+    }
+
+    // SAFETY: CString storage is owned by the live opaque handle.
+    let identification = unsafe { &*identification };
+    identification.last_error.as_ptr()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn goodix550a_bridge_firmware_name(firmware: u32) -> *const c_char {
     match firmware {
         FIRMWARE_APP15045 => c_text(APP_VERSION_TEXT),
@@ -1885,12 +2257,7 @@ mod tests {
 
         assert_eq!(
             deadline
-                .timeout_for_action_at(
-                    Gf3258LibfprintTransferDirection::In,
-                    7,
-                    30_000,
-                    start,
-                )
+                .timeout_for_action_at(Gf3258LibfprintTransferDirection::In, 7, 30_000, start,)
                 .unwrap(),
             30_000
         );
@@ -1938,12 +2305,7 @@ mod tests {
 
         assert_eq!(
             deadline
-                .timeout_for_action_at(
-                    Gf3258LibfprintTransferDirection::In,
-                    7,
-                    30_000,
-                    start,
-                )
+                .timeout_for_action_at(Gf3258LibfprintTransferDirection::In, 7, 30_000, start,)
                 .unwrap(),
             30_000
         );
@@ -1968,12 +2330,7 @@ mod tests {
 
         assert_eq!(
             deadline
-                .timeout_for_action_at(
-                    Gf3258LibfprintTransferDirection::In,
-                    7,
-                    30_000,
-                    start,
-                )
+                .timeout_for_action_at(Gf3258LibfprintTransferDirection::In, 7, 30_000, start,)
                 .unwrap(),
             30_000
         );
@@ -2012,12 +2369,7 @@ mod tests {
 
         assert_eq!(
             deadline
-                .timeout_for_action_at(
-                    Gf3258LibfprintTransferDirection::In,
-                    7,
-                    30_000,
-                    start,
-                )
+                .timeout_for_action_at(Gf3258LibfprintTransferDirection::In, 7, 30_000, start,)
                 .unwrap(),
             30_000
         );
@@ -2066,12 +2418,7 @@ mod tests {
         let mut deadline = InTransferDeadline::default();
 
         let error = deadline
-            .timeout_for_action_at(
-                Gf3258LibfprintTransferDirection::In,
-                3,
-                0,
-                Instant::now(),
-            )
+            .timeout_for_action_at(Gf3258LibfprintTransferDirection::In, 3, 0, Instant::now())
             .unwrap_err();
 
         assert!(error.contains("unbounded zero-millisecond timeout"));
@@ -2083,12 +2430,7 @@ mod tests {
         let start = Instant::now();
 
         deadline
-            .timeout_for_action_at(
-                Gf3258LibfprintTransferDirection::In,
-                3,
-                1_000,
-                start,
-            )
+            .timeout_for_action_at(Gf3258LibfprintTransferDirection::In, 3, 1_000, start)
             .unwrap();
 
         let timeout_ms = deadline
@@ -2101,5 +2443,191 @@ mod tests {
             .unwrap();
 
         assert_eq!(timeout_ms, 1);
+    }
+
+    fn synthetic_identification_tgla() -> Vec<u8> {
+        use goodix_info::enrollment::{Gf3258EnrollmentFrameOutcome, Gf3258EnrollmentWorkflow};
+        use goodix_info::libfprint_wire::GF3258_LIBFPRINT_CAPTURE_PIXEL_COUNT;
+
+        let raw = vec![1000u16; GF3258_LIBFPRINT_CAPTURE_PIXEL_COUNT];
+        let mut enrollment = Gf3258EnrollmentWorkflow::new();
+
+        assert!(matches!(
+            enrollment.process_raw_frame(&raw).unwrap(),
+            Gf3258EnrollmentFrameOutcome::Accepted(_)
+        ));
+
+        enrollment
+            .encode_artifacts()
+            .unwrap()
+            .tgla_template()
+            .to_vec()
+    }
+
+    #[test]
+    fn identification_abi_constructor_nulls_failed_output() {
+        let malformed = b"not-a-template";
+        let mut identification =
+            std::ptr::NonNull::<Goodix550aBridgeIdentification>::dangling().as_ptr();
+
+        let status = unsafe {
+            goodix550a_bridge_identification_new(
+                malformed.as_ptr(),
+                malformed.len(),
+                &mut identification,
+            )
+        };
+
+        assert_eq!(status, STATUS_PROTOCOL_ERROR);
+        assert!(identification.is_null());
+
+        let tgla = synthetic_identification_tgla();
+        let status = unsafe {
+            goodix550a_bridge_identification_new(tgla.as_ptr(), tgla.len(), std::ptr::null_mut())
+        };
+        assert_eq!(status, STATUS_INVALID_ARGUMENT);
+
+        // Freeing NULL is intentionally a no-op at the C ABI boundary.
+        unsafe {
+            goodix550a_bridge_identification_free(std::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn identification_abi_accepts_gallery_before_capture() {
+        let tgla = synthetic_identification_tgla();
+        let mut identification = std::ptr::null_mut();
+
+        assert_eq!(
+            unsafe {
+                goodix550a_bridge_identification_new(tgla.as_ptr(), tgla.len(), &mut identification)
+            },
+            STATUS_OK
+        );
+        assert!(!identification.is_null());
+
+        assert_eq!(
+            unsafe {
+                goodix550a_bridge_identification_add_template(
+                    identification,
+                    tgla.as_ptr(),
+                    tgla.len(),
+                )
+            },
+            STATUS_OK
+        );
+
+        let malformed = b"bad-template";
+        assert_eq!(
+            unsafe {
+                goodix550a_bridge_identification_add_template(
+                    identification,
+                    malformed.as_ptr(),
+                    malformed.len(),
+                )
+            },
+            STATUS_PROTOCOL_ERROR
+        );
+
+        let error = unsafe {
+            std::ffi::CStr::from_ptr(goodix550a_bridge_identification_last_error(identification))
+        }
+        .to_string_lossy();
+
+        assert_ne!(error, "ok");
+
+        unsafe {
+            goodix550a_bridge_identification_free(identification);
+        }
+    }
+
+    #[test]
+    fn identification_abi_freezes_gallery_after_first_action() {
+        let tgla = synthetic_identification_tgla();
+        let mut identification = std::ptr::null_mut();
+
+        assert_eq!(
+            unsafe {
+                goodix550a_bridge_identification_new(tgla.as_ptr(), tgla.len(), &mut identification)
+            },
+            STATUS_OK
+        );
+
+        let mut action = std::mem::MaybeUninit::<Goodix550aBridgeIdentificationAction>::uninit();
+        let mut output = [0u8; 64];
+
+        assert_eq!(
+            unsafe {
+                goodix550a_bridge_identification_next_action(
+                    identification,
+                    action.as_mut_ptr(),
+                    output.as_mut_ptr(),
+                    output.len(),
+                )
+            },
+            STATUS_OK
+        );
+
+        assert_eq!(
+            unsafe {
+                goodix550a_bridge_identification_add_template(
+                    identification,
+                    tgla.as_ptr(),
+                    tgla.len(),
+                )
+            },
+            STATUS_PROTOCOL_ERROR
+        );
+
+        let error = unsafe {
+            std::ffi::CStr::from_ptr(goodix550a_bridge_identification_last_error(identification))
+        }
+        .to_string_lossy();
+
+        assert_ne!(error, "ok");
+
+        unsafe {
+            goodix550a_bridge_identification_free(identification);
+        }
+    }
+
+    #[test]
+    fn identification_abi_result_and_scanned_tgla_require_completion() {
+        let tgla = synthetic_identification_tgla();
+        let mut identification = std::ptr::null_mut();
+
+        assert_eq!(
+            unsafe {
+                goodix550a_bridge_identification_new(tgla.as_ptr(), tgla.len(), &mut identification)
+            },
+            STATUS_OK
+        );
+
+        let mut info = std::mem::MaybeUninit::<Goodix550aBridgeIdentificationInfo>::uninit();
+
+        assert_eq!(
+            unsafe { goodix550a_bridge_identification_result(identification, info.as_mut_ptr(),) },
+            STATUS_PROTOCOL_ERROR
+        );
+
+        let mut written = usize::MAX;
+
+        assert_eq!(
+            unsafe {
+                goodix550a_bridge_identification_copy_scanned_tgla(
+                    identification,
+                    std::ptr::null_mut(),
+                    0,
+                    &mut written,
+                )
+            },
+            STATUS_PROTOCOL_ERROR
+        );
+
+        assert_eq!(written, usize::MAX);
+
+        unsafe {
+            goodix550a_bridge_identification_free(identification);
+        }
     }
 }

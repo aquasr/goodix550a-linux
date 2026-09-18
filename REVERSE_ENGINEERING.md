@@ -159,7 +159,8 @@ The current validation layers are:
 | Offline parity tools | Agreement with retained reference evidence at selected intermediate boundaries |
 | Live diagnostics | Narrow device behavior such as version, OTP, configuration, D2, and chip identification |
 | Standalone workflows | Capture, enrollment, persistence reload, and verification on the physical sensor |
-| libfprint probes | Enrollment and verification through the public libfprint integration path |
+| libfprint probes | Enrollment, verification, and host-gallery identification through the public libfprint integration path |
+| Desktop authentication | End-to-end fprintd and PAM consumption of the libfprint identification result |
 
 Ordinary `cargo test` does not open the sensor. A green test run therefore does not
 establish live-device correctness or security.
