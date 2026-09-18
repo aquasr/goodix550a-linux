@@ -1,6 +1,7 @@
 use std::{
     ffi::{CString, c_char},
     ptr, slice,
+    time::{Duration, Instant},
 };
 
 use goodix_info::libfprint_wire::{
@@ -8,7 +9,8 @@ use goodix_info::libfprint_wire::{
     Gf3258LibfprintBootstrapEngine, Gf3258LibfprintBootstrapProgress, Gf3258LibfprintCaptureEngine,
     Gf3258LibfprintCaptureProgress, Gf3258LibfprintEnrollmentDisposition,
     Gf3258LibfprintEnrollmentEngine, Gf3258LibfprintFirmwareIdentity,
-    Gf3258LibfprintRecoveryEngine, Gf3258LibfprintVerificationDisposition,
+    Gf3258LibfprintRecoveryEngine, Gf3258LibfprintTransferDirection,
+    Gf3258LibfprintVerificationDisposition,
     Gf3258LibfprintVerificationEngine, gf3258_libfprint_build_bootstrap_reset_request,
     gf3258_libfprint_build_chip_id_request, gf3258_libfprint_build_get_version_request,
     gf3258_libfprint_build_postboot_reset_request, gf3258_libfprint_parse_bootstrap_reset_ack,
@@ -40,6 +42,105 @@ static APP_VERSION_TEXT: &[u8] = b"GFUSB_GM168SEC_APP_15045\0";
 static IAP_VERSION_TEXT: &[u8] = b"MILAN_GM168SEC_IAP_10007\0";
 static UNKNOWN_VERSION_TEXT: &[u8] = b"unknown\0";
 
+#[derive(Debug, Clone, Copy)]
+struct InTransferDeadlineState {
+    stage: u32,
+    deadline: Instant,
+    budget_ms: u32,
+}
+
+#[derive(Debug, Default)]
+struct InTransferDeadline {
+    state: Option<InTransferDeadlineState>,
+}
+
+impl InTransferDeadline {
+    fn timeout_for_action(
+        &mut self,
+        direction: Gf3258LibfprintTransferDirection,
+        stage: u32,
+        timeout_ms: u32,
+    ) -> Result<u32, String> {
+        self.timeout_for_action_at(direction, stage, timeout_ms, Instant::now())
+    }
+
+    fn timeout_for_action_at(
+        &mut self,
+        direction: Gf3258LibfprintTransferDirection,
+        stage: u32,
+        timeout_ms: u32,
+        now: Instant,
+    ) -> Result<u32, String> {
+        if direction != Gf3258LibfprintTransferDirection::In {
+            self.state = None;
+            return Ok(timeout_ms);
+        }
+
+        if timeout_ms == 0 {
+            self.state = None;
+            return Err(format!(
+                "libfprint IN stage {stage} requested an unbounded zero-millisecond timeout"
+            ));
+        }
+
+        match self.state {
+            None => {
+                let budget = Duration::from_millis(u64::from(timeout_ms));
+                let deadline = now.checked_add(budget).ok_or_else(|| {
+                    format!(
+                        "libfprint IN stage {stage} deadline overflow for {timeout_ms} ms budget"
+                    )
+                })?;
+
+                self.state = Some(InTransferDeadlineState {
+                    stage,
+                    deadline,
+                    budget_ms: timeout_ms,
+                });
+
+                Ok(timeout_ms)
+            }
+            Some(state) if state.stage != stage => {
+                let budget = Duration::from_millis(u64::from(timeout_ms));
+                let deadline = now.checked_add(budget).ok_or_else(|| {
+                    format!(
+                        "libfprint IN stage {stage} deadline overflow for {timeout_ms} ms budget"
+                    )
+                })?;
+
+                self.state = Some(InTransferDeadlineState {
+                    stage,
+                    deadline,
+                    budget_ms: timeout_ms,
+                });
+
+                Ok(timeout_ms)
+            }
+            Some(state) => {
+                if now >= state.deadline {
+                    return Err(format!(
+                        "libfprint IN stage {} exceeded its absolute {} ms wait budget",
+                        state.stage, state.budget_ms
+                    ));
+                }
+
+                let remaining = state.deadline.duration_since(now);
+
+                // libusb interprets a zero timeout as an unbounded wait. Round a
+                // positive sub-millisecond remainder up to one millisecond.
+                let remaining_ms = remaining
+                    .as_millis()
+                    .clamp(1, u128::from(u32::MAX)) as u32;
+
+                // A repeated request for the same logical IN stage may tighten
+                // its per-transfer timeout, but it must never extend the
+                // original absolute deadline.
+                Ok(remaining_ms.min(timeout_ms))
+            }
+        }
+    }
+}
+
 #[repr(C)]
 pub struct Goodix550aBridgeAck {
     flags: u8,
@@ -65,6 +166,7 @@ pub struct Goodix550aBridgeBootstrapInfo {
 
 pub struct Goodix550aBridgeBootstrap {
     engine: Gf3258LibfprintBootstrapEngine,
+    in_deadline: InTransferDeadline,
     last_error: CString,
 }
 
@@ -74,6 +176,7 @@ impl Goodix550aBridgeBootstrap {
             Gf3258LibfprintBootstrapEngine::new(firmware).map_err(|error| error.to_string())?;
         Ok(Self {
             engine,
+            in_deadline: InTransferDeadline::default(),
             last_error: cstring("ok"),
         })
     }
@@ -106,6 +209,7 @@ pub struct Goodix550aBridgeRecoveryInfo {
 
 pub struct Goodix550aBridgeRecovery {
     engine: Gf3258LibfprintRecoveryEngine,
+    in_deadline: InTransferDeadline,
     last_error: CString,
 }
 
@@ -113,6 +217,7 @@ impl Goodix550aBridgeRecovery {
     fn new() -> Self {
         Self {
             engine: Gf3258LibfprintRecoveryEngine::new(),
+            in_deadline: InTransferDeadline::default(),
             last_error: cstring("ok"),
         }
     }
@@ -143,6 +248,7 @@ pub struct Goodix550aBridgeCaptureInfo {
 
 pub struct Goodix550aBridgeCapture {
     engine: Gf3258LibfprintCaptureEngine,
+    in_deadline: InTransferDeadline,
     last_error: CString,
 }
 
@@ -151,6 +257,7 @@ impl Goodix550aBridgeCapture {
         let engine = Gf3258LibfprintCaptureEngine::new().map_err(|error| error.to_string())?;
         Ok(Self {
             engine,
+            in_deadline: InTransferDeadline::default(),
             last_error: cstring("ok"),
         })
     }
@@ -185,6 +292,7 @@ pub struct Goodix550aBridgeEnrollmentInfo {
 
 pub struct Goodix550aBridgeEnrollment {
     engine: Gf3258LibfprintEnrollmentEngine,
+    in_deadline: InTransferDeadline,
     last_error: CString,
 }
 
@@ -193,6 +301,7 @@ impl Goodix550aBridgeEnrollment {
         let engine = Gf3258LibfprintEnrollmentEngine::new().map_err(|error| error.to_string())?;
         Ok(Self {
             engine,
+            in_deadline: InTransferDeadline::default(),
             last_error: cstring("ok"),
         })
     }
@@ -225,6 +334,7 @@ pub struct Goodix550aBridgeVerificationInfo {
 
 pub struct Goodix550aBridgeVerification {
     engine: Gf3258LibfprintVerificationEngine,
+    in_deadline: InTransferDeadline,
     last_error: CString,
 }
 
@@ -234,6 +344,7 @@ impl Goodix550aBridgeVerification {
             Gf3258LibfprintVerificationEngine::new(tgla).map_err(|error| error.to_string())?;
         Ok(Self {
             engine,
+            in_deadline: InTransferDeadline::default(),
             last_error: cstring("ok"),
         })
     }
@@ -715,11 +826,20 @@ pub unsafe extern "C" fn goodix550a_bridge_bootstrap_next_action(
         Ok(next) => next,
         Err(error) => return bootstrap.record_error(error),
     };
+    let timeout_ms = match bootstrap.in_deadline.timeout_for_action(
+        next.direction(),
+        next.stage() as u32,
+        next.timeout_ms(),
+    ) {
+        Ok(timeout_ms) => timeout_ms,
+        Err(error) => return bootstrap.record_error(error),
+    };
+
     let value = Goodix550aBridgeBootstrapAction {
         direction: next.direction() as u32,
         stage: next.stage() as u32,
         transfer_length: next.transfer_length(),
-        timeout_ms: next.timeout_ms(),
+        timeout_ms,
         endpoint: next.endpoint(),
         short_is_error: u8::from(next.short_is_error()),
         reserved: 0,
@@ -898,11 +1018,20 @@ pub unsafe extern "C" fn goodix550a_bridge_recovery_next_action(
         Ok(next) => next,
         Err(error) => return recovery.record_error(error),
     };
+    let timeout_ms = match recovery.in_deadline.timeout_for_action(
+        next.direction(),
+        next.stage() as u32,
+        next.timeout_ms(),
+    ) {
+        Ok(timeout_ms) => timeout_ms,
+        Err(error) => return recovery.record_error(error),
+    };
+
     let value = Goodix550aBridgeRecoveryAction {
         direction: next.direction() as u32,
         stage: next.stage() as u32,
         transfer_length: next.transfer_length(),
-        timeout_ms: next.timeout_ms(),
+        timeout_ms,
         endpoint: next.endpoint(),
         short_is_error: u8::from(next.short_is_error()),
         reserved: 0,
@@ -1088,11 +1217,20 @@ pub unsafe extern "C" fn goodix550a_bridge_capture_next_action(
         Ok(next) => next,
         Err(error) => return capture.record_error(error),
     };
+    let timeout_ms = match capture.in_deadline.timeout_for_action(
+        next.direction(),
+        next.stage() as u32,
+        next.timeout_ms(),
+    ) {
+        Ok(timeout_ms) => timeout_ms,
+        Err(error) => return capture.record_error(error),
+    };
+
     let value = Goodix550aBridgeCaptureAction {
         direction: next.direction() as u32,
         stage: next.stage() as u32,
         transfer_length: next.transfer_length(),
-        timeout_ms: next.timeout_ms(),
+        timeout_ms,
         endpoint: next.endpoint(),
         short_is_error: u8::from(next.short_is_error()),
         reserved: 0,
@@ -1305,11 +1443,20 @@ pub unsafe extern "C" fn goodix550a_bridge_enrollment_next_action(
         Ok(next) => next,
         Err(error) => return enrollment.record_error(error),
     };
+    let timeout_ms = match enrollment.in_deadline.timeout_for_action(
+        next.direction(),
+        next.stage() as u32,
+        next.timeout_ms(),
+    ) {
+        Ok(timeout_ms) => timeout_ms,
+        Err(error) => return enrollment.record_error(error),
+    };
+
     let value = Goodix550aBridgeEnrollmentAction {
         direction: next.direction() as u32,
         stage: next.stage() as u32,
         transfer_length: next.transfer_length(),
-        timeout_ms: next.timeout_ms(),
+        timeout_ms,
         endpoint: next.endpoint(),
         short_is_error: u8::from(next.short_is_error()),
         reserved: 0,
@@ -1575,11 +1722,20 @@ pub unsafe extern "C" fn goodix550a_bridge_verification_next_action(
         Ok(next) => next,
         Err(error) => return verification.record_error(error),
     };
+    let timeout_ms = match verification.in_deadline.timeout_for_action(
+        next.direction(),
+        next.stage() as u32,
+        next.timeout_ms(),
+    ) {
+        Ok(timeout_ms) => timeout_ms,
+        Err(error) => return verification.record_error(error),
+    };
+
     let value = Goodix550aBridgeVerificationAction {
         direction: next.direction() as u32,
         stage: next.stage() as u32,
         transfer_length: next.transfer_length(),
-        timeout_ms: next.timeout_ms(),
+        timeout_ms,
         endpoint: next.endpoint(),
         short_is_error: u8::from(next.short_is_error()),
         reserved: 0,
@@ -1715,5 +1871,235 @@ pub extern "C" fn goodix550a_bridge_status_message(status: i32) -> *const c_char
         STATUS_BUFFER_TOO_SMALL => c_text(STATUS_BUFFER_TOO_SMALL_TEXT),
         STATUS_PROTOCOL_ERROR => c_text(STATUS_PROTOCOL_ERROR_TEXT),
         _ => c_text(STATUS_UNKNOWN_TEXT),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_in_stage_consumes_one_absolute_budget() {
+        let mut deadline = InTransferDeadline::default();
+        let start = Instant::now();
+
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    7,
+                    30_000,
+                    start,
+                )
+                .unwrap(),
+            30_000
+        );
+
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    7,
+                    30_000,
+                    start + Duration::from_secs(10),
+                )
+                .unwrap(),
+            20_000
+        );
+
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    7,
+                    30_000,
+                    start + Duration::from_millis(29_999),
+                )
+                .unwrap(),
+            1
+        );
+
+        let error = deadline
+            .timeout_for_action_at(
+                Gf3258LibfprintTransferDirection::In,
+                7,
+                30_000,
+                start + Duration::from_secs(30),
+            )
+            .unwrap_err();
+
+        assert!(error.contains("absolute 30000 ms wait budget"));
+    }
+
+    #[test]
+    fn advancing_to_another_in_stage_gets_a_fresh_budget() {
+        let mut deadline = InTransferDeadline::default();
+        let start = Instant::now();
+
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    7,
+                    30_000,
+                    start,
+                )
+                .unwrap(),
+            30_000
+        );
+
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    8,
+                    3_000,
+                    start + Duration::from_secs(20),
+                )
+                .unwrap(),
+            3_000
+        );
+    }
+
+    #[test]
+    fn out_action_clears_the_prior_in_deadline() {
+        let mut deadline = InTransferDeadline::default();
+        let start = Instant::now();
+
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    7,
+                    30_000,
+                    start,
+                )
+                .unwrap(),
+            30_000
+        );
+
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::Out,
+                    8,
+                    1_000,
+                    start + Duration::from_secs(10),
+                )
+                .unwrap(),
+            1_000
+        );
+
+        // Returning to the same numeric IN stage after an OUT action represents
+        // a new logical wait and therefore receives a fresh budget.
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    7,
+                    30_000,
+                    start + Duration::from_secs(20),
+                )
+                .unwrap(),
+            30_000
+        );
+    }
+
+    #[test]
+    fn changing_timeout_does_not_reset_same_stage_deadline() {
+        let mut deadline = InTransferDeadline::default();
+        let start = Instant::now();
+
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    7,
+                    30_000,
+                    start,
+                )
+                .unwrap(),
+            30_000
+        );
+
+        // Tightening the individual transfer timeout is allowed, but the
+        // original 30-second absolute deadline remains authoritative.
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    7,
+                    5_000,
+                    start + Duration::from_secs(10),
+                )
+                .unwrap(),
+            5_000
+        );
+
+        // Increasing it again cannot buy another 30 seconds.
+        assert_eq!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    7,
+                    30_000,
+                    start + Duration::from_secs(29),
+                )
+                .unwrap(),
+            1_000
+        );
+
+        assert!(
+            deadline
+                .timeout_for_action_at(
+                    Gf3258LibfprintTransferDirection::In,
+                    7,
+                    30_000,
+                    start + Duration::from_secs(30),
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn zero_timeout_is_rejected_for_in_transfer() {
+        let mut deadline = InTransferDeadline::default();
+
+        let error = deadline
+            .timeout_for_action_at(
+                Gf3258LibfprintTransferDirection::In,
+                3,
+                0,
+                Instant::now(),
+            )
+            .unwrap_err();
+
+        assert!(error.contains("unbounded zero-millisecond timeout"));
+    }
+
+    #[test]
+    fn sub_millisecond_remaining_never_becomes_infinite_usb_timeout() {
+        let mut deadline = InTransferDeadline::default();
+        let start = Instant::now();
+
+        deadline
+            .timeout_for_action_at(
+                Gf3258LibfprintTransferDirection::In,
+                3,
+                1_000,
+                start,
+            )
+            .unwrap();
+
+        let timeout_ms = deadline
+            .timeout_for_action_at(
+                Gf3258LibfprintTransferDirection::In,
+                3,
+                1_000,
+                start + Duration::from_micros(999_500),
+            )
+            .unwrap();
+
+        assert_eq!(timeout_ms, 1);
     }
 }
