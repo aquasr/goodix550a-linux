@@ -125,4 +125,4 @@ The overlay does not currently implement:
 * [Root README](../README.md)
 * [Reverse-engineering evidence rules](../REVERSE_ENGINEERING.md)
 * [Research questions and experimental design](../RESEARCH.md)
-* [Validation and live-device procedures](../tools/tools.md)
+* [Validation and live-device procedures](../tools/README.md)

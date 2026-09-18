@@ -168,4 +168,4 @@ standalone program.
 * [Root README](../README.md)
 * [Reverse-engineering evidence rules](../REVERSE_ENGINEERING.md)
 * [Research questions and experimental design](../RESEARCH.md)
-* [libfprint overlay](../libfprint-overlay/libfprint_overlay.md)
+* [libfprint overlay](../libfprint-overlay/README.md)
