@@ -201,9 +201,9 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let captured_psk = [0u8; 32];
 
-    let pmk_hmac = get_pmk_hmac_from_psk(&captured_psk);
+    let pmk_hmac = get_pmk_hmac_from_psk(&captured_psk)?;
 
-    let f4_tag = firmware_f4_tag(&captured_psk, package.bytes());
+    let f4_tag = firmware_f4_tag(&captured_psk, package.bytes())?;
 
     println!("Firmware authentication:");
 

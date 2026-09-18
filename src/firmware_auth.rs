@@ -65,6 +65,9 @@ const KDF_LABEL_2: &[u8; 15] = b"kaelrgnoerlithm";
 /// Requested KDF output size in bits: 384 bits = 48 bytes.
 const KDF_OUTPUT_BITS: u32 = 0x180;
 
+/// Maximum PSK size accepted by the recovered vendor GetPmkHmac path.
+const VENDOR_PSK_MAX_LEN: usize = 0x20;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FirmwareAuthError {
     SealedObjectTooShort { actual: usize },
@@ -78,6 +81,8 @@ pub enum FirmwareAuthError {
     InvalidPkcs7Padding,
 
     PlaintextLengthMismatch { declared: usize, actual: usize },
+
+    PskTooLong { actual: usize, maximum: usize },
 }
 
 impl fmt::Display for FirmwareAuthError {
@@ -115,6 +120,14 @@ impl fmt::Display for FirmwareAuthError {
                     f,
                     "sealed-object plaintext length mismatch: \
                      declared {declared}, recovered {actual}"
+                )
+            }
+
+            Self::PskTooLong { actual, maximum } => {
+                write!(
+                    f,
+                    "PSK is too large for vendor GetPmkHmac input: \
+                     {actual} bytes, maximum {maximum}"
                 )
             }
         }
@@ -332,14 +345,17 @@ pub fn verify_psk_hash(psk: &[u8], expected_hash: &[u8]) -> bool {
 ///     0ac39058f7e4bc0025a18bd069e7a04e
 ///     a4399531175a3b1726b22e4e4266983a
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics when `psk` exceeds the vendor's fixed 32-byte input buffer.
-pub fn get_pmk_hmac_from_psk(psk: &[u8]) -> [u8; 32] {
-    assert!(
-        psk.len() <= 0x20,
-        "PSK is too large for vendor GetPmkHmac input"
-    );
+/// Returns [`FirmwareAuthError::PskTooLong`] when `psk` exceeds the
+/// vendor's fixed 32-byte input buffer.
+pub fn get_pmk_hmac_from_psk(psk: &[u8]) -> Result<[u8; 32], FirmwareAuthError> {
+    if psk.len() > VENDOR_PSK_MAX_LEN {
+        return Err(FirmwareAuthError::PskTooLong {
+            actual: psk.len(),
+            maximum: VENDOR_PSK_MAX_LEN,
+        });
+    }
 
     let mut input = [0u8; 0x44];
 
@@ -364,7 +380,7 @@ pub fn get_pmk_hmac_from_psk(psk: &[u8]) -> [u8; 32] {
         *byte = (index + 1) as u8;
     }
 
-    hmac_sha256(&hmac_key, &message)
+    Ok(hmac_sha256(&hmac_key, &message))
 }
 
 /// Compute the exact 32-byte authentication tag used as the F4
@@ -389,10 +405,15 @@ pub fn get_pmk_hmac_from_psk(psk: &[u8]) -> [u8; 32] {
 /// The PSK is intentionally an explicit parameter. Production code
 /// must not fall back to the `_McuCreateContext` placeholder
 /// { 0x12, 0x34, 0x56 }.
-pub fn firmware_f4_tag(psk: &[u8], package: &[u8]) -> [u8; 32] {
-    let key = get_pmk_hmac_from_psk(psk);
+///
+/// # Errors
+///
+/// Returns [`FirmwareAuthError::PskTooLong`] when `psk` exceeds the
+/// vendor's fixed 32-byte GetPmkHmac input buffer.
+pub fn firmware_f4_tag(psk: &[u8], package: &[u8]) -> Result<[u8; 32], FirmwareAuthError> {
+    let key = get_pmk_hmac_from_psk(psk)?;
 
-    hmac_sha256(&key, package)
+    Ok(hmac_sha256(&key, package))
 }
 
 /// AES-128-CBC decryption matching FUN_001fc6b0.
@@ -596,7 +617,58 @@ mod tests {
     fn get_pmk_hmac_matches_captured_runtime_psk() {
         let psk = [0u8; 32];
 
-        assert_eq!(get_pmk_hmac_from_psk(&psk), EXPECTED_CAPTURED_PMK_HMAC);
+        assert_eq!(
+            get_pmk_hmac_from_psk(&psk).unwrap(),
+            EXPECTED_CAPTURED_PMK_HMAC
+        );
+    }
+
+    #[test]
+    fn pmk_hmac_accepts_supported_length_boundaries() {
+        assert!(get_pmk_hmac_from_psk(&[]).is_ok());
+        assert!(get_pmk_hmac_from_psk(&[0u8; VENDOR_PSK_MAX_LEN]).is_ok());
+    }
+
+    #[test]
+    fn pmk_hmac_rejects_oversized_psks_without_panicking() {
+        assert_eq!(
+            get_pmk_hmac_from_psk(&[0u8; VENDOR_PSK_MAX_LEN + 1]),
+            Err(FirmwareAuthError::PskTooLong {
+                actual: VENDOR_PSK_MAX_LEN + 1,
+                maximum: VENDOR_PSK_MAX_LEN,
+            })
+        );
+
+        assert_eq!(
+            get_pmk_hmac_from_psk(&vec![0u8; 4096]),
+            Err(FirmwareAuthError::PskTooLong {
+                actual: 4096,
+                maximum: VENDOR_PSK_MAX_LEN,
+            })
+        );
+    }
+
+    #[test]
+    fn firmware_f4_tag_propagates_oversized_psk_error() {
+        assert_eq!(
+            firmware_f4_tag(&[0u8; VENDOR_PSK_MAX_LEN + 1], b"package",),
+            Err(FirmwareAuthError::PskTooLong {
+                actual: VENDOR_PSK_MAX_LEN + 1,
+                maximum: VENDOR_PSK_MAX_LEN,
+            })
+        );
+    }
+
+    #[test]
+    fn tampered_sealed_psk_length_is_rejected_by_hmac() {
+        let mut sealed = CAPTURED_SEALED_PSK;
+
+        sealed[SEALED_LENGTH_OFFSET] ^= 0x01;
+
+        assert_eq!(
+            unseal_psk(&sealed),
+            Err(FirmwareAuthError::SealedObjectHmacMismatch)
+        );
     }
 
     #[test]

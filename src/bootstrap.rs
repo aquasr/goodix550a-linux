@@ -369,7 +369,7 @@ pub(crate) fn begin_cold_bootstrap<D: GoodixUsbIo + ?Sized>(
      *
      * firmware_f4_tag() implements that complete chain.
      */
-    let f4_tag = firmware_f4_tag(&psk, package.bytes());
+    let f4_tag = firmware_f4_tag(&psk, package.bytes())?;
 
     /*
      * This is the first persistent firmware-write operation in the state

@@ -214,7 +214,10 @@ impl Gf3258LibfprintBootstrapPlan {
             return Err(Gf3258LibfprintWireError::BootstrapPskHashMismatch);
         }
 
-        self.f4_tag = Some(firmware_f4_tag(&psk, self.package.bytes()));
+        let f4_tag = firmware_f4_tag(&psk, self.package.bytes())
+            .map_err(|error| Gf3258LibfprintWireError::BootstrapPsk(error.to_string()))?;
+
+        self.f4_tag = Some(f4_tag);
         Ok(())
     }
 
@@ -2858,6 +2861,27 @@ mod tests {
             plan.authenticate_persisted_psk(&CAPTURED_SEALED_PSK, &EXPECTED_CAPTURED_PSK_SHA256),
             Err(Gf3258LibfprintWireError::BootstrapAlreadyAuthenticated)
         ));
+    }
+
+    #[test]
+    fn bootstrap_plan_rejects_tampered_persisted_psk_without_authenticating() {
+        let mut plan = synthetic_bootstrap_plan();
+        let mut sealed_psk = CAPTURED_SEALED_PSK;
+
+        // The mode-1 envelope stores its authenticated plaintext length
+        // at offset 0x22. Changing it must fail authentication cleanly.
+        sealed_psk[0x22] ^= 0x01;
+
+        assert!(matches!(
+            plan.authenticate_persisted_psk(&sealed_psk, &EXPECTED_CAPTURED_PSK_SHA256,),
+            Err(Gf3258LibfprintWireError::BootstrapPsk(_))
+        ));
+
+        assert!(!plan.is_authenticated());
+        assert_eq!(
+            plan.f4_tag(),
+            Err(Gf3258LibfprintWireError::BootstrapNotAuthenticated)
+        );
     }
 
     #[test]

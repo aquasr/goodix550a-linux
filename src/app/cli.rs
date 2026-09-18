@@ -570,9 +570,9 @@ fn run_bootstrap_check(
 
     println!("Calculating firmware authentication...");
 
-    let pmk_hmac = get_pmk_hmac_from_psk(&runtime_psk.plaintext);
+    let pmk_hmac = get_pmk_hmac_from_psk(&runtime_psk.plaintext)?;
 
-    let f4_tag = firmware_f4_tag(&runtime_psk.plaintext, package.bytes());
+    let f4_tag = firmware_f4_tag(&runtime_psk.plaintext, package.bytes())?;
 
     println!("GetPmkHmac:      {}", encode_hex(&pmk_hmac));
 
@@ -690,7 +690,7 @@ fn run_psk_diagnostic(
 
     println!("Deriving GetPmkHmac...");
 
-    let pmk_hmac = get_pmk_hmac_from_psk(&runtime_psk.plaintext);
+    let pmk_hmac = get_pmk_hmac_from_psk(&runtime_psk.plaintext)?;
 
     println!("GetPmkHmac: {}", encode_hex(&pmk_hmac));
 
