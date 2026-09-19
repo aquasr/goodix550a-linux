@@ -150,10 +150,119 @@ static void enrollment_schedule_next (FpiDeviceGoodix550a *self);
 static void verification_schedule_next (FpiDeviceGoodix550a *self);
 static void identification_schedule_next (FpiDeviceGoodix550a *self);
 
+static gboolean
+interactive_operation_active (FpiDeviceGoodix550a *self)
+{
+  return self->capture ||
+         self->enrollment ||
+         self->verification ||
+         self->identification;
+}
+
+typedef struct
+{
+  GVariant *tgla_variant;
+  const guint8 *tgla;
+  gsize tgla_length;
+} Goodix550aPrintData;
+
+static void
+print_data_clear (Goodix550aPrintData *data)
+{
+  g_clear_pointer (&data->tgla_variant, g_variant_unref);
+  data->tgla = NULL;
+  data->tgla_length = 0;
+}
+
+static GError *
+print_data_decode (FpPrint              *print,
+                   Goodix550aPrintData  *data)
+{
+  g_autoptr(GVariant) print_data = NULL;
+  guint32 version = 0;
+
+  g_assert (data != NULL);
+
+  data->tgla_variant = NULL;
+  data->tgla = NULL;
+  data->tgla_length = 0;
+
+  if (!print)
+    return fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
+                                     "GF3258 print is missing");
+
+  g_object_get (print, "fpi-data", &print_data, NULL);
+  if (!print_data ||
+      !g_variant_is_of_type (print_data,
+                             G_VARIANT_TYPE (GOODIX550A_PRINT_TYPE)))
+    return fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
+                                     "GF3258 print data is not a versioned TGLA payload");
+
+  g_variant_get (print_data, "(u@ay)", &version, &data->tgla_variant);
+
+  if (version != GOODIX550A_PRINT_VERSION)
+    {
+      print_data_clear (data);
+      return fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
+                                       "unsupported GF3258 print-data version %u",
+                                       version);
+    }
+
+  data->tgla = g_variant_get_fixed_array (data->tgla_variant,
+                                          &data->tgla_length,
+                                          sizeof (guint8));
+
+  if (!data->tgla || data->tgla_length == 0)
+    {
+      print_data_clear (data);
+      return fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
+                                       "GF3258 print contains an empty TGLA payload");
+    }
+
+  return NULL;
+}
+
 static GError *
 protocol_error (const gchar *message)
 {
   return fpi_device_error_new_msg (FP_DEVICE_ERROR_PROTO, "%s", message);
+}
+
+static void
+submit_bridge_transfer (FpiDeviceGoodix550a  *self,
+                        const gchar          *operation,
+                        guint32               direction,
+                        guint32               stage,
+                        guint8                endpoint,
+                        gsize                 transfer_length,
+                        guint32               timeout_ms,
+                        guint8                short_is_error,
+                        const guint8         *output,
+                        FpiUsbTransferCallback callback)
+{
+  FpiUsbTransfer *transfer;
+
+  transfer = fpi_usb_transfer_new (FP_DEVICE (self));
+  fpi_usb_transfer_fill_bulk (transfer, endpoint, transfer_length);
+
+  if (direction == GOODIX550A_BRIDGE_TRANSFER_OUT)
+    memcpy (transfer->buffer, output, transfer_length);
+
+  fpi_usb_transfer_set_short_error (transfer, short_is_error != 0);
+
+  fp_dbg ("Rust %s stage=%u direction=%s endpoint=0x%02x length=%zu timeout=%u",
+          operation,
+          stage,
+          direction == GOODIX550A_BRIDGE_TRANSFER_OUT ? "OUT" : "IN",
+          (guint) endpoint,
+          transfer_length,
+          timeout_ms);
+
+  fpi_usb_transfer_submit (transfer,
+                           timeout_ms,
+                           fpi_device_get_cancellable (FP_DEVICE (self)),
+                           callback,
+                           GUINT_TO_POINTER (direction));
 }
 
 static GError *
@@ -453,7 +562,6 @@ bootstrap_schedule_next (FpiDeviceGoodix550a *self)
 {
   Goodix550aBridgeBootstrapAction action = { 0 };
   guint8 output[GOODIX550A_USB_BLOCK_SIZE] = { 0 };
-  FpiUsbTransfer *transfer;
   gint status;
 
   if (!self->bootstrap)
@@ -495,25 +603,16 @@ bootstrap_schedule_next (FpiDeviceGoodix550a *self)
       return;
     }
 
-  transfer = fpi_usb_transfer_new (FP_DEVICE (self));
-  fpi_usb_transfer_fill_bulk (transfer, action.endpoint, action.transfer_length);
-
-  if (action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT)
-    memcpy (transfer->buffer, output, action.transfer_length);
-
-  fpi_usb_transfer_set_short_error (transfer, action.short_is_error != 0);
-  fp_dbg ("Rust bootstrap stage=%u direction=%s endpoint=0x%02x length=%zu timeout=%u",
-          action.stage,
-          action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT ? "OUT" : "IN",
-          (guint) action.endpoint,
-          action.transfer_length,
-          action.timeout_ms);
-
-  fpi_usb_transfer_submit (transfer,
-                           action.timeout_ms,
-                           fpi_device_get_cancellable (FP_DEVICE (self)),
-                           bootstrap_transfer_cb,
-                           GUINT_TO_POINTER (action.direction));
+  submit_bridge_transfer (self,
+                          "bootstrap",
+                          action.direction,
+                          action.stage,
+                          action.endpoint,
+                          action.transfer_length,
+                          action.timeout_ms,
+                          action.short_is_error,
+                          output,
+                          bootstrap_transfer_cb);
 }
 
 static GError *
@@ -622,7 +721,6 @@ recovery_schedule_next (FpiDeviceGoodix550a *self)
 {
   Goodix550aBridgeRecoveryAction action = { 0 };
   guint8 output[GOODIX550A_RECOVERY_OUT_MAX] = { 0 };
-  FpiUsbTransfer *transfer;
   gint status;
 
   status = goodix550a_bridge_recovery_next_action (self->recovery,
@@ -655,25 +753,16 @@ recovery_schedule_next (FpiDeviceGoodix550a *self)
       return;
     }
 
-  transfer = fpi_usb_transfer_new (FP_DEVICE (self));
-  fpi_usb_transfer_fill_bulk (transfer, action.endpoint, action.transfer_length);
-
-  if (action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT)
-    memcpy (transfer->buffer, output, action.transfer_length);
-
-  fpi_usb_transfer_set_short_error (transfer, action.short_is_error != 0);
-  fp_dbg ("Rust recovery stage=%u direction=%s endpoint=0x%02x length=%zu timeout=%u",
-          action.stage,
-          action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT ? "OUT" : "IN",
-          (guint) action.endpoint,
-          action.transfer_length,
-          action.timeout_ms);
-
-  fpi_usb_transfer_submit (transfer,
-                           action.timeout_ms,
-                           fpi_device_get_cancellable (FP_DEVICE (self)),
-                           recovery_transfer_cb,
-                           GUINT_TO_POINTER (action.direction));
+  submit_bridge_transfer (self,
+                          "recovery",
+                          action.direction,
+                          action.stage,
+                          action.endpoint,
+                          action.transfer_length,
+                          action.timeout_ms,
+                          action.short_is_error,
+                          output,
+                          recovery_transfer_cb);
 }
 
 static void
@@ -1360,7 +1449,6 @@ capture_schedule_next (FpiDeviceGoodix550a *self)
 {
   Goodix550aBridgeCaptureAction action = { 0 };
   guint8 output[GOODIX550A_USB_BLOCK_SIZE] = { 0 };
-  FpiUsbTransfer *transfer;
   gint status;
 
   status = goodix550a_bridge_capture_next_action (self->capture,
@@ -1393,25 +1481,16 @@ capture_schedule_next (FpiDeviceGoodix550a *self)
       return;
     }
 
-  transfer = fpi_usb_transfer_new (FP_DEVICE (self));
-  fpi_usb_transfer_fill_bulk (transfer, action.endpoint, action.transfer_length);
-
-  if (action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT)
-    memcpy (transfer->buffer, output, action.transfer_length);
-
-  fpi_usb_transfer_set_short_error (transfer, action.short_is_error != 0);
-  fp_dbg ("Rust capture stage=%u direction=%s endpoint=0x%02x length=%zu timeout=%u",
-          action.stage,
-          action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT ? "OUT" : "IN",
-          (guint) action.endpoint,
-          action.transfer_length,
-          action.timeout_ms);
-
-  fpi_usb_transfer_submit (transfer,
-                           action.timeout_ms,
-                           fpi_device_get_cancellable (FP_DEVICE (self)),
-                           capture_transfer_cb,
-                           GUINT_TO_POINTER (action.direction));
+  submit_bridge_transfer (self,
+                          "capture",
+                          action.direction,
+                          action.stage,
+                          action.endpoint,
+                          action.transfer_length,
+                          action.timeout_ms,
+                          action.short_is_error,
+                          output,
+                          capture_transfer_cb);
 }
 
 static const gchar *
@@ -1635,7 +1714,6 @@ enrollment_schedule_next (FpiDeviceGoodix550a *self)
 {
   Goodix550aBridgeEnrollmentAction action = { 0 };
   guint8 output[GOODIX550A_USB_BLOCK_SIZE] = { 0 };
-  FpiUsbTransfer *transfer;
   gint status;
 
   status = goodix550a_bridge_enrollment_next_action (self->enrollment,
@@ -1673,25 +1751,16 @@ enrollment_schedule_next (FpiDeviceGoodix550a *self)
       return;
     }
 
-  transfer = fpi_usb_transfer_new (FP_DEVICE (self));
-  fpi_usb_transfer_fill_bulk (transfer, action.endpoint, action.transfer_length);
-
-  if (action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT)
-    memcpy (transfer->buffer, output, action.transfer_length);
-
-  fpi_usb_transfer_set_short_error (transfer, action.short_is_error != 0);
-  fp_dbg ("Rust enroll stage=%u direction=%s endpoint=0x%02x length=%zu timeout=%u",
-          action.stage,
-          action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT ? "OUT" : "IN",
-          (guint) action.endpoint,
-          action.transfer_length,
-          action.timeout_ms);
-
-  fpi_usb_transfer_submit (transfer,
-                           action.timeout_ms,
-                           fpi_device_get_cancellable (FP_DEVICE (self)),
-                           enrollment_transfer_cb,
-                           GUINT_TO_POINTER (action.direction));
+  submit_bridge_transfer (self,
+                          "enroll",
+                          action.direction,
+                          action.stage,
+                          action.endpoint,
+                          action.transfer_length,
+                          action.timeout_ms,
+                          action.short_is_error,
+                          output,
+                          enrollment_transfer_cb);
 }
 
 static const gchar *
@@ -1833,7 +1902,6 @@ verification_schedule_next (FpiDeviceGoodix550a *self)
 {
   Goodix550aBridgeVerificationAction action = { 0 };
   guint8 output[GOODIX550A_USB_BLOCK_SIZE] = { 0 };
-  FpiUsbTransfer *transfer;
   gint status;
 
   status = goodix550a_bridge_verification_next_action (self->verification,
@@ -1871,25 +1939,16 @@ verification_schedule_next (FpiDeviceGoodix550a *self)
       return;
     }
 
-  transfer = fpi_usb_transfer_new (FP_DEVICE (self));
-  fpi_usb_transfer_fill_bulk (transfer, action.endpoint, action.transfer_length);
-
-  if (action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT)
-    memcpy (transfer->buffer, output, action.transfer_length);
-
-  fpi_usb_transfer_set_short_error (transfer, action.short_is_error != 0);
-  fp_dbg ("Rust verify stage=%u direction=%s endpoint=0x%02x length=%zu timeout=%u",
-          action.stage,
-          action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT ? "OUT" : "IN",
-          (guint) action.endpoint,
-          action.transfer_length,
-          action.timeout_ms);
-
-  fpi_usb_transfer_submit (transfer,
-                           action.timeout_ms,
-                           fpi_device_get_cancellable (FP_DEVICE (self)),
-                           verification_transfer_cb,
-                           GUINT_TO_POINTER (action.direction));
+  submit_bridge_transfer (self,
+                          "verify",
+                          action.direction,
+                          action.stage,
+                          action.endpoint,
+                          action.transfer_length,
+                          action.timeout_ms,
+                          action.short_is_error,
+                          output,
+                          verification_transfer_cb);
 }
 
 static GError *
@@ -2140,7 +2199,6 @@ identification_schedule_next (FpiDeviceGoodix550a *self)
 {
   Goodix550aBridgeIdentificationAction action = { 0 };
   guint8 output[GOODIX550A_USB_BLOCK_SIZE] = { 0 };
-  FpiUsbTransfer *transfer;
   gint status;
 
   status = goodix550a_bridge_identification_next_action (self->identification,
@@ -2178,26 +2236,16 @@ identification_schedule_next (FpiDeviceGoodix550a *self)
       return;
     }
 
-  transfer = fpi_usb_transfer_new (FP_DEVICE (self));
-  fpi_usb_transfer_fill_bulk (transfer, action.endpoint, action.transfer_length);
-
-  if (action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT)
-    memcpy (transfer->buffer, output, action.transfer_length);
-
-  fpi_usb_transfer_set_short_error (transfer, action.short_is_error != 0);
-
-  fp_dbg ("Rust identify stage=%u direction=%s endpoint=0x%02x length=%zu timeout=%u",
-          action.stage,
-          action.direction == GOODIX550A_BRIDGE_TRANSFER_OUT ? "OUT" : "IN",
-          (guint) action.endpoint,
-          action.transfer_length,
-          action.timeout_ms);
-
-  fpi_usb_transfer_submit (transfer,
-                           action.timeout_ms,
-                           fpi_device_get_cancellable (FP_DEVICE (self)),
-                           identification_transfer_cb,
-                           GUINT_TO_POINTER (action.direction));
+  submit_bridge_transfer (self,
+                          "identify",
+                          action.direction,
+                          action.stage,
+                          action.endpoint,
+                          action.transfer_length,
+                          action.timeout_ms,
+                          action.short_is_error,
+                          output,
+                          identification_transfer_cb);
 }
 
 static void
@@ -2353,7 +2401,7 @@ dev_capture (FpDevice *device)
       return;
     }
 
-  if (self->capture || self->enrollment || self->verification || self->identification)
+  if (interactive_operation_active (self))
     {
       fpi_device_capture_complete (device,
                                    NULL,
@@ -2399,7 +2447,7 @@ dev_enroll (FpDevice *device)
       return;
     }
 
-  if (self->enrollment || self->verification || self->capture || self->identification)
+  if (interactive_operation_active (self))
     {
       fpi_device_enroll_complete (device, NULL, fpi_device_error_new (FP_DEVICE_ERROR_BUSY));
       return;
@@ -2445,11 +2493,9 @@ dev_verify (FpDevice *device)
 {
   FpiDeviceGoodix550a *self = FPI_DEVICE_GOODIX550A (device);
   FpPrint *print = NULL;
-  g_autoptr(GVariant) print_data = NULL;
-  g_autoptr(GVariant) tgla_variant = NULL;
-  const guint8 *tgla;
+  Goodix550aPrintData data = { 0 };
+  g_autoptr(GError) decode_error = NULL;
   gsize tgla_length = 0;
-  guint32 version = 0;
   gint status;
 
   if (self->firmware != GOODIX550A_BRIDGE_FIRMWARE_APP15045)
@@ -2468,7 +2514,7 @@ dev_verify (FpDevice *device)
       return;
     }
 
-  if (self->verification || self->enrollment || self->capture || self->identification)
+  if (interactive_operation_active (self))
     {
       fpi_device_verify_complete (device, fpi_device_error_new (FP_DEVICE_ERROR_BUSY));
       return;
@@ -2483,35 +2529,18 @@ dev_verify (FpDevice *device)
       return;
     }
 
-  g_object_get (print, "fpi-data", &print_data, NULL);
-  if (!print_data || !g_variant_is_of_type (print_data, G_VARIANT_TYPE (GOODIX550A_PRINT_TYPE)))
+  decode_error = print_data_decode (print, &data);
+  if (decode_error)
     {
-      fpi_device_verify_complete (device,
-                                  fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
-                                                            "GF3258 print data is not a versioned TGLA payload"));
+      fpi_device_verify_complete (device, g_steal_pointer (&decode_error));
       return;
     }
 
-  g_variant_get (print_data, "(u@ay)", &version, &tgla_variant);
-  if (version != GOODIX550A_PRINT_VERSION)
-    {
-      fpi_device_verify_complete (device,
-                                  fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
-                                                            "unsupported GF3258 print-data version %u",
-                                                            version));
-      return;
-    }
-
-  tgla = g_variant_get_fixed_array (tgla_variant, &tgla_length, sizeof (guint8));
-  if (!tgla || tgla_length == 0)
-    {
-      fpi_device_verify_complete (device,
-                                  fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
-                                                            "GF3258 print contains an empty TGLA payload"));
-      return;
-    }
-
-  status = goodix550a_bridge_verification_new (tgla, tgla_length, &self->verification);
+  tgla_length = data.tgla_length;
+  status = goodix550a_bridge_verification_new (data.tgla,
+                                                data.tgla_length,
+                                                &self->verification);
+  print_data_clear (&data);
   if (status != GOODIX550A_BRIDGE_OK)
     {
       fpi_device_verify_complete (device,
@@ -2521,7 +2550,8 @@ dev_verify (FpDevice *device)
       return;
     }
 
-  fp_info ("Rust-core verification template accepted: tgla=%zuB", tgla_length);
+  fp_info ("Rust-core verification template accepted: tgla=%zuB",
+           tgla_length);
   verification_schedule_next (self);
 }
 
@@ -2548,10 +2578,7 @@ dev_identify (FpDevice *device)
       return;
     }
 
-  if (self->identification ||
-      self->verification ||
-      self->enrollment ||
-      self->capture)
+  if (interactive_operation_active (self))
     {
       fpi_device_identify_complete (device,
                                     fpi_device_error_new (FP_DEVICE_ERROR_BUSY));
@@ -2587,75 +2614,33 @@ dev_identify (FpDevice *device)
   for (i = 0; i < gallery->len; i++)
     {
       FpPrint *print = g_ptr_array_index (gallery, i);
-      g_autoptr(GVariant) print_data = NULL;
-      g_autoptr(GVariant) tgla_variant = NULL;
-      const guint8 *tgla;
-      gsize tgla_length = 0;
-      guint32 version = 0;
+      Goodix550aPrintData data = { 0 };
+      g_autoptr(GError) decode_error = NULL;
       gint status;
 
-      if (!print)
+      decode_error = print_data_decode (print, &data);
+      if (decode_error)
         {
           identification_clear (self);
           fpi_device_identify_complete (
             device,
             fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
-                                      "GF3258 identification gallery contains a null print"));
-          return;
-        }
-
-      g_object_get (print, "fpi-data", &print_data, NULL);
-
-      if (!print_data ||
-          !g_variant_is_of_type (print_data,
-                                 G_VARIANT_TYPE (GOODIX550A_PRINT_TYPE)))
-        {
-          identification_clear (self);
-          fpi_device_identify_complete (
-            device,
-            fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
-                                      "GF3258 identification print %u is not a versioned TGLA payload",
-                                      i));
-          return;
-        }
-
-      g_variant_get (print_data, "(u@ay)", &version, &tgla_variant);
-
-      if (version != GOODIX550A_PRINT_VERSION)
-        {
-          identification_clear (self);
-          fpi_device_identify_complete (
-            device,
-            fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
-                                      "unsupported GF3258 identification print-data version %u at gallery index %u",
-                                      version,
-                                      i));
-          return;
-        }
-
-      tgla = g_variant_get_fixed_array (tgla_variant,
-                                        &tgla_length,
-                                        sizeof (guint8));
-
-      if (!tgla || tgla_length == 0)
-        {
-          identification_clear (self);
-          fpi_device_identify_complete (
-            device,
-            fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID,
-                                      "GF3258 identification print %u contains an empty TGLA payload",
-                                      i));
+                                      "invalid GF3258 identification print at gallery index %u: %s",
+                                      i,
+                                      decode_error->message));
           return;
         }
 
       if (i == 0)
-        status = goodix550a_bridge_identification_new (tgla,
-                                                       tgla_length,
+        status = goodix550a_bridge_identification_new (data.tgla,
+                                                       data.tgla_length,
                                                        &self->identification);
       else
         status = goodix550a_bridge_identification_add_template (self->identification,
-                                                                tgla,
-                                                                tgla_length);
+                                                                data.tgla,
+                                                                data.tgla_length);
+
+      print_data_clear (&data);
 
       if (status != GOODIX550A_BRIDGE_OK)
         {

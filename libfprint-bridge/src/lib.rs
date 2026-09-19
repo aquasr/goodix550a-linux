@@ -143,6 +143,41 @@ impl InTransferDeadline {
     }
 }
 
+struct BridgeWorkflowState {
+    in_deadline: InTransferDeadline,
+    last_error: CString,
+}
+
+impl Default for BridgeWorkflowState {
+    fn default() -> Self {
+        Self {
+            in_deadline: InTransferDeadline::default(),
+            last_error: cstring("ok"),
+        }
+    }
+}
+
+impl BridgeWorkflowState {
+    fn timeout_for_action(
+        &mut self,
+        direction: Gf3258LibfprintTransferDirection,
+        stage: u32,
+        timeout_ms: u32,
+    ) -> Result<u32, String> {
+        self.in_deadline
+            .timeout_for_action(direction, stage, timeout_ms)
+    }
+
+    fn record_error(&mut self, error: impl ToString) -> i32 {
+        self.last_error = cstring(&error.to_string());
+        STATUS_PROTOCOL_ERROR
+    }
+
+    fn last_error_ptr(&self) -> *const c_char {
+        self.last_error.as_ptr()
+    }
+}
+
 #[repr(C)]
 pub struct Goodix550aBridgeAck {
     flags: u8,
@@ -168,8 +203,7 @@ pub struct Goodix550aBridgeBootstrapInfo {
 
 pub struct Goodix550aBridgeBootstrap {
     engine: Gf3258LibfprintBootstrapEngine,
-    in_deadline: InTransferDeadline,
-    last_error: CString,
+    state: BridgeWorkflowState,
 }
 
 impl Goodix550aBridgeBootstrap {
@@ -178,14 +212,8 @@ impl Goodix550aBridgeBootstrap {
             Gf3258LibfprintBootstrapEngine::new(firmware).map_err(|error| error.to_string())?;
         Ok(Self {
             engine,
-            in_deadline: InTransferDeadline::default(),
-            last_error: cstring("ok"),
+            state: BridgeWorkflowState::default(),
         })
-    }
-
-    fn record_error(&mut self, error: impl ToString) -> i32 {
-        self.last_error = cstring(&error.to_string());
-        STATUS_PROTOCOL_ERROR
     }
 }
 
@@ -211,22 +239,15 @@ pub struct Goodix550aBridgeRecoveryInfo {
 
 pub struct Goodix550aBridgeRecovery {
     engine: Gf3258LibfprintRecoveryEngine,
-    in_deadline: InTransferDeadline,
-    last_error: CString,
+    state: BridgeWorkflowState,
 }
 
 impl Goodix550aBridgeRecovery {
     fn new() -> Self {
         Self {
             engine: Gf3258LibfprintRecoveryEngine::new(),
-            in_deadline: InTransferDeadline::default(),
-            last_error: cstring("ok"),
+            state: BridgeWorkflowState::default(),
         }
-    }
-
-    fn record_error(&mut self, error: impl ToString) -> i32 {
-        self.last_error = cstring(&error.to_string());
-        STATUS_PROTOCOL_ERROR
     }
 }
 
@@ -250,8 +271,7 @@ pub struct Goodix550aBridgeCaptureInfo {
 
 pub struct Goodix550aBridgeCapture {
     engine: Gf3258LibfprintCaptureEngine,
-    in_deadline: InTransferDeadline,
-    last_error: CString,
+    state: BridgeWorkflowState,
 }
 
 impl Goodix550aBridgeCapture {
@@ -259,14 +279,8 @@ impl Goodix550aBridgeCapture {
         let engine = Gf3258LibfprintCaptureEngine::new().map_err(|error| error.to_string())?;
         Ok(Self {
             engine,
-            in_deadline: InTransferDeadline::default(),
-            last_error: cstring("ok"),
+            state: BridgeWorkflowState::default(),
         })
-    }
-
-    fn record_error(&mut self, error: impl ToString) -> i32 {
-        self.last_error = cstring(&error.to_string());
-        STATUS_PROTOCOL_ERROR
     }
 }
 
@@ -294,8 +308,7 @@ pub struct Goodix550aBridgeEnrollmentInfo {
 
 pub struct Goodix550aBridgeEnrollment {
     engine: Gf3258LibfprintEnrollmentEngine,
-    in_deadline: InTransferDeadline,
-    last_error: CString,
+    state: BridgeWorkflowState,
 }
 
 impl Goodix550aBridgeEnrollment {
@@ -303,14 +316,8 @@ impl Goodix550aBridgeEnrollment {
         let engine = Gf3258LibfprintEnrollmentEngine::new().map_err(|error| error.to_string())?;
         Ok(Self {
             engine,
-            in_deadline: InTransferDeadline::default(),
-            last_error: cstring("ok"),
+            state: BridgeWorkflowState::default(),
         })
-    }
-
-    fn record_error(&mut self, error: impl ToString) -> i32 {
-        self.last_error = cstring(&error.to_string());
-        STATUS_PROTOCOL_ERROR
     }
 }
 
@@ -336,8 +343,7 @@ pub struct Goodix550aBridgeVerificationInfo {
 
 pub struct Goodix550aBridgeVerification {
     engine: Gf3258LibfprintVerificationEngine,
-    in_deadline: InTransferDeadline,
-    last_error: CString,
+    state: BridgeWorkflowState,
 }
 
 impl Goodix550aBridgeVerification {
@@ -346,14 +352,8 @@ impl Goodix550aBridgeVerification {
             Gf3258LibfprintVerificationEngine::new(tgla).map_err(|error| error.to_string())?;
         Ok(Self {
             engine,
-            in_deadline: InTransferDeadline::default(),
-            last_error: cstring("ok"),
+            state: BridgeWorkflowState::default(),
         })
-    }
-
-    fn record_error(&mut self, error: impl ToString) -> i32 {
-        self.last_error = cstring(&error.to_string());
-        STATUS_PROTOCOL_ERROR
     }
 }
 
@@ -381,8 +381,7 @@ pub struct Goodix550aBridgeIdentificationInfo {
 
 pub struct Goodix550aBridgeIdentification {
     engine: Gf3258LibfprintIdentificationEngine,
-    in_deadline: InTransferDeadline,
-    last_error: CString,
+    state: BridgeWorkflowState,
 }
 
 impl Goodix550aBridgeIdentification {
@@ -392,14 +391,8 @@ impl Goodix550aBridgeIdentification {
 
         Ok(Self {
             engine,
-            in_deadline: InTransferDeadline::default(),
-            last_error: cstring("ok"),
+            state: BridgeWorkflowState::default(),
         })
-    }
-
-    fn record_error(&mut self, error: impl ToString) -> i32 {
-        self.last_error = cstring(&error.to_string());
-        STATUS_PROTOCOL_ERROR
     }
 }
 
@@ -872,15 +865,15 @@ pub unsafe extern "C" fn goodix550a_bridge_bootstrap_next_action(
 
     let next = match bootstrap.engine.next_action(output) {
         Ok(next) => next,
-        Err(error) => return bootstrap.record_error(error),
+        Err(error) => return bootstrap.state.record_error(error),
     };
-    let timeout_ms = match bootstrap.in_deadline.timeout_for_action(
+    let timeout_ms = match bootstrap.state.timeout_for_action(
         next.direction(),
         next.stage() as u32,
         next.timeout_ms(),
     ) {
         Ok(timeout_ms) => timeout_ms,
-        Err(error) => return bootstrap.record_error(error),
+        Err(error) => return bootstrap.state.record_error(error),
     };
 
     let value = Goodix550aBridgeBootstrapAction {
@@ -931,7 +924,7 @@ pub unsafe extern "C" fn goodix550a_bridge_bootstrap_complete_transfer(
 
     let progress = match bootstrap.engine.complete_transfer(bytes) {
         Ok(progress) => progress,
-        Err(error) => return bootstrap.record_error(error),
+        Err(error) => return bootstrap.state.record_error(error),
     };
     let value = u8::from(matches!(
         progress,
@@ -964,7 +957,7 @@ pub unsafe extern "C" fn goodix550a_bridge_bootstrap_result(
     let bootstrap = unsafe { &mut *bootstrap };
     let result = match bootstrap.engine.result() {
         Ok(result) => result,
-        Err(error) => return bootstrap.record_error(error),
+        Err(error) => return bootstrap.state.record_error(error),
     };
     let value = Goodix550aBridgeBootstrapInfo {
         f0_chunks_sent: result.f0_chunks_sent(),
@@ -994,7 +987,7 @@ pub unsafe extern "C" fn goodix550a_bridge_bootstrap_last_error(
 
     // SAFETY: pointer is valid until bootstrap_free; CString storage is owned by it.
     let bootstrap = unsafe { &*bootstrap };
-    bootstrap.last_error.as_ptr()
+    bootstrap.state.last_error_ptr()
 }
 
 #[unsafe(no_mangle)]
@@ -1064,15 +1057,15 @@ pub unsafe extern "C" fn goodix550a_bridge_recovery_next_action(
     };
     let next = match recovery.engine.next_action(output) {
         Ok(next) => next,
-        Err(error) => return recovery.record_error(error),
+        Err(error) => return recovery.state.record_error(error),
     };
-    let timeout_ms = match recovery.in_deadline.timeout_for_action(
+    let timeout_ms = match recovery.state.timeout_for_action(
         next.direction(),
         next.stage() as u32,
         next.timeout_ms(),
     ) {
         Ok(timeout_ms) => timeout_ms,
-        Err(error) => return recovery.record_error(error),
+        Err(error) => return recovery.state.record_error(error),
     };
 
     let value = Goodix550aBridgeRecoveryAction {
@@ -1120,7 +1113,7 @@ pub unsafe extern "C" fn goodix550a_bridge_recovery_complete_transfer(
     };
     let progress = match recovery.engine.complete_transfer(bytes) {
         Ok(progress) => progress,
-        Err(error) => return recovery.record_error(error),
+        Err(error) => return recovery.state.record_error(error),
     };
     let value = u8::from(matches!(progress, Gf3258LibfprintCaptureProgress::Advanced));
     // SAFETY: advanced points to one writable byte.
@@ -1148,7 +1141,7 @@ pub unsafe extern "C" fn goodix550a_bridge_recovery_result(
     let recovery = unsafe { &mut *recovery };
     let result = match recovery.engine.result() {
         Ok(result) => result,
-        Err(error) => return recovery.record_error(error),
+        Err(error) => return recovery.state.record_error(error),
     };
     let value = Goodix550aBridgeRecoveryInfo {
         tcode: result.tcode(),
@@ -1179,7 +1172,7 @@ pub unsafe extern "C" fn goodix550a_bridge_recovery_last_error(
     }
     // SAFETY: pointer is valid until recovery_free; CString storage is owned by it.
     let recovery = unsafe { &*recovery };
-    recovery.last_error.as_ptr()
+    recovery.state.last_error_ptr()
 }
 
 #[unsafe(no_mangle)]
@@ -1263,15 +1256,15 @@ pub unsafe extern "C" fn goodix550a_bridge_capture_next_action(
 
     let next = match capture.engine.next_action(output) {
         Ok(next) => next,
-        Err(error) => return capture.record_error(error),
+        Err(error) => return capture.state.record_error(error),
     };
-    let timeout_ms = match capture.in_deadline.timeout_for_action(
+    let timeout_ms = match capture.state.timeout_for_action(
         next.direction(),
         next.stage() as u32,
         next.timeout_ms(),
     ) {
         Ok(timeout_ms) => timeout_ms,
-        Err(error) => return capture.record_error(error),
+        Err(error) => return capture.state.record_error(error),
     };
 
     let value = Goodix550aBridgeCaptureAction {
@@ -1326,7 +1319,7 @@ pub unsafe extern "C" fn goodix550a_bridge_capture_complete_transfer(
 
     let progress = match capture.engine.complete_transfer(bytes) {
         Ok(progress) => progress,
-        Err(error) => return capture.record_error(error),
+        Err(error) => return capture.state.record_error(error),
     };
     let value = u8::from(matches!(progress, Gf3258LibfprintCaptureProgress::Advanced));
 
@@ -1360,7 +1353,7 @@ pub unsafe extern "C" fn goodix550a_bridge_capture_copy_image_u8(
     let capture = unsafe { &mut *capture };
     let result = match capture.engine.result() {
         Ok(result) => result,
-        Err(error) => return capture.record_error(error),
+        Err(error) => return capture.state.record_error(error),
     };
     if output_length < result.pixel_count() {
         return STATUS_BUFFER_TOO_SMALL;
@@ -1407,7 +1400,7 @@ pub unsafe extern "C" fn goodix550a_bridge_capture_last_error(
     // SAFETY: `capture` is an opaque pointer created by this bridge and remains
     // valid until capture_free. The returned CString storage is owned by it.
     let capture = unsafe { &*capture };
-    capture.last_error.as_ptr()
+    capture.state.last_error_ptr()
 }
 
 #[unsafe(no_mangle)]
@@ -1489,15 +1482,15 @@ pub unsafe extern "C" fn goodix550a_bridge_enrollment_next_action(
 
     let next = match enrollment.engine.next_action(output) {
         Ok(next) => next,
-        Err(error) => return enrollment.record_error(error),
+        Err(error) => return enrollment.state.record_error(error),
     };
-    let timeout_ms = match enrollment.in_deadline.timeout_for_action(
+    let timeout_ms = match enrollment.state.timeout_for_action(
         next.direction(),
         next.stage() as u32,
         next.timeout_ms(),
     ) {
         Ok(timeout_ms) => timeout_ms,
-        Err(error) => return enrollment.record_error(error),
+        Err(error) => return enrollment.state.record_error(error),
     };
 
     let value = Goodix550aBridgeEnrollmentAction {
@@ -1549,7 +1542,7 @@ pub unsafe extern "C" fn goodix550a_bridge_enrollment_complete_transfer(
 
     let progress = match enrollment.engine.complete_transfer(bytes) {
         Ok(progress) => progress,
-        Err(error) => return enrollment.record_error(error),
+        Err(error) => return enrollment.state.record_error(error),
     };
     let value = u8::from(matches!(progress, Gf3258LibfprintCaptureProgress::Advanced));
 
@@ -1580,7 +1573,7 @@ pub unsafe extern "C" fn goodix550a_bridge_enrollment_result(
     let enrollment = unsafe { &mut *enrollment };
     let result = match enrollment.engine.result() {
         Ok(result) => result,
-        Err(error) => return enrollment.record_error(error),
+        Err(error) => return enrollment.state.record_error(error),
     };
     let disposition = match result.disposition() {
         Gf3258LibfprintEnrollmentDisposition::Retry => ENROLL_RETRY,
@@ -1623,7 +1616,7 @@ pub unsafe extern "C" fn goodix550a_bridge_enrollment_start_next_touch(
     let enrollment = unsafe { &mut *enrollment };
     match enrollment.engine.start_next_touch() {
         Ok(()) => STATUS_OK,
-        Err(error) => enrollment.record_error(error),
+        Err(error) => enrollment.state.record_error(error),
     }
 }
 
@@ -1648,7 +1641,7 @@ pub unsafe extern "C" fn goodix550a_bridge_enrollment_copy_tgla(
     let enrollment = unsafe { &mut *enrollment };
     let tgla = match enrollment.engine.tgla() {
         Ok(tgla) => tgla,
-        Err(error) => return enrollment.record_error(error),
+        Err(error) => return enrollment.state.record_error(error),
     };
     if output_length < tgla.len() {
         return STATUS_BUFFER_TOO_SMALL;
@@ -1679,7 +1672,7 @@ pub unsafe extern "C" fn goodix550a_bridge_enrollment_last_error(
 
     // SAFETY: pointer is valid until enrollment_free; CString storage is owned by it.
     let enrollment = unsafe { &*enrollment };
-    enrollment.last_error.as_ptr()
+    enrollment.state.last_error_ptr()
 }
 
 #[unsafe(no_mangle)]
@@ -1768,15 +1761,15 @@ pub unsafe extern "C" fn goodix550a_bridge_verification_next_action(
 
     let next = match verification.engine.next_action(output) {
         Ok(next) => next,
-        Err(error) => return verification.record_error(error),
+        Err(error) => return verification.state.record_error(error),
     };
-    let timeout_ms = match verification.in_deadline.timeout_for_action(
+    let timeout_ms = match verification.state.timeout_for_action(
         next.direction(),
         next.stage() as u32,
         next.timeout_ms(),
     ) {
         Ok(timeout_ms) => timeout_ms,
-        Err(error) => return verification.record_error(error),
+        Err(error) => return verification.state.record_error(error),
     };
 
     let value = Goodix550aBridgeVerificationAction {
@@ -1828,7 +1821,7 @@ pub unsafe extern "C" fn goodix550a_bridge_verification_complete_transfer(
 
     let progress = match verification.engine.complete_transfer(bytes) {
         Ok(progress) => progress,
-        Err(error) => return verification.record_error(error),
+        Err(error) => return verification.state.record_error(error),
     };
     let value = u8::from(matches!(progress, Gf3258LibfprintCaptureProgress::Advanced));
 
@@ -1859,7 +1852,7 @@ pub unsafe extern "C" fn goodix550a_bridge_verification_result(
     let verification = unsafe { &mut *verification };
     let result = match verification.engine.result() {
         Ok(result) => result,
-        Err(error) => return verification.record_error(error),
+        Err(error) => return verification.state.record_error(error),
     };
     let disposition = match result.disposition() {
         Gf3258LibfprintVerificationDisposition::Retry => VERIFY_RETRY,
@@ -1899,7 +1892,7 @@ pub unsafe extern "C" fn goodix550a_bridge_verification_last_error(
     // SAFETY: pointer is valid until verification_free; CString storage is
     // owned by the opaque bridge object.
     let verification = unsafe { &*verification };
-    verification.last_error.as_ptr()
+    verification.state.last_error_ptr()
 }
 
 #[unsafe(no_mangle)]
@@ -1967,7 +1960,7 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_add_template(
 
     match identification.engine.add_template(tgla) {
         Ok(()) => STATUS_OK,
-        Err(error) => identification.record_error(error),
+        Err(error) => identification.state.record_error(error),
     }
 }
 
@@ -2021,7 +2014,7 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_next_action(
 
     let next = match identification.engine.next_action(output) {
         Ok(next) => next,
-        Err(error) => return identification.record_error(error),
+        Err(error) => return identification.state.record_error(error),
     };
 
     /*
@@ -2029,13 +2022,13 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_next_action(
      * deadline protection as verify/enroll/capture. An ignored packet may
      * resubmit an IN transfer, but may not purchase a fresh timeout budget.
      */
-    let timeout_ms = match identification.in_deadline.timeout_for_action(
+    let timeout_ms = match identification.state.timeout_for_action(
         next.direction(),
         next.stage() as u32,
         next.timeout_ms(),
     ) {
         Ok(timeout_ms) => timeout_ms,
-        Err(error) => return identification.record_error(error),
+        Err(error) => return identification.state.record_error(error),
     };
 
     let value = Goodix550aBridgeIdentificationAction {
@@ -2087,7 +2080,7 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_complete_transfer(
 
     let progress = match identification.engine.complete_transfer(bytes) {
         Ok(progress) => progress,
-        Err(error) => return identification.record_error(error),
+        Err(error) => return identification.state.record_error(error),
     };
 
     let value = u8::from(matches!(progress, Gf3258LibfprintCaptureProgress::Advanced));
@@ -2117,7 +2110,7 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_result(
 
     let result = match identification.engine.result() {
         Ok(result) => result,
-        Err(error) => return identification.record_error(error),
+        Err(error) => return identification.state.record_error(error),
     };
 
     let disposition = match result.disposition() {
@@ -2137,11 +2130,12 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_result(
 
     if disposition == IDENTIFY_MATCH && result.match_index().is_none() {
         return identification
+            .state
             .record_error("identification Match result did not contain a gallery index");
     }
 
     if disposition != IDENTIFY_MATCH && result.match_index().is_some() {
-        return identification.record_error(
+        return identification.state.record_error(
             "non-Match identification result unexpectedly contained a gallery index",
         );
     }
@@ -2184,7 +2178,7 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_copy_scanned_tgla(
 
     let tgla = match identification.engine.scanned_tgla() {
         Ok(tgla) => tgla,
-        Err(error) => return identification.record_error(error),
+        Err(error) => return identification.state.record_error(error),
     };
 
     if output_length < tgla.len() {
@@ -2223,7 +2217,7 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_last_error(
 
     // SAFETY: CString storage is owned by the live opaque handle.
     let identification = unsafe { &*identification };
-    identification.last_error.as_ptr()
+    identification.state.last_error_ptr()
 }
 
 #[unsafe(no_mangle)]
