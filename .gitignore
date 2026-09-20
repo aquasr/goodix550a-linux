@@ -46,6 +46,3 @@ core.*
 *~
 *.swp
 .DS_Store
-
-# Custom filters
-CONTRIBUTING.md

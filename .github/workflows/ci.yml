@@ -30,3 +30,28 @@ jobs:
         run: cargo test --manifest-path libfprint-bridge/Cargo.toml
       - name: Lint C ABI bridge
         run: cargo clippy --manifest-path libfprint-bridge/Cargo.toml --all-targets -- -D warnings
+      - name: Check bridge pkg-config staging
+        run: |
+          cargo build --release --manifest-path libfprint-bridge/Cargo.toml
+
+          STAGE="$RUNNER_TEMP/goodix550a-bridge-stage"
+          MOVED_STAGE="$RUNNER_TEMP/goodix550a-bridge-stage-moved"
+
+          python3 libfprint-bridge/prepare-pkg-config.py --prefix "$STAGE"
+
+          PKG_CONFIG_PATH="$STAGE/lib/pkgconfig" \
+            pkg-config --validate goodix550a-bridge
+
+          if grep -F "$GITHUB_WORKSPACE" \
+            "$STAGE/lib/pkgconfig/goodix550a-bridge.pc"; then
+            echo "generated pkg-config file contains the checkout path"
+            exit 1
+          fi
+
+          mv "$STAGE" "$MOVED_STAGE"
+
+          PKG_CONFIG_PATH="$MOVED_STAGE/lib/pkgconfig" \
+            pkg-config --validate goodix550a-bridge
+
+          PKG_CONFIG_PATH="$MOVED_STAGE/lib/pkgconfig" \
+            pkg-config --cflags --libs goodix550a-bridge

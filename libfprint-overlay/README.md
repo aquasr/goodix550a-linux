@@ -120,28 +120,76 @@ The driver has no sensor-resident fingerprint database. An empty libfprint
 identification gallery is therefore reported as unsupported rather than treated
 as a device-side identification request.
 
-## Enrollment probe
+## Public libfprint probes
 
-`enroll-probe.c` exercises the public libfprint API.
+The `probes/` directory contains small public-API integration programs:
 
-It:
+* `capture-probe.c` opens the Goodix device, captures one image through
+  `fp_device_capture_sync()`, and checks the expected 80x64 image geometry;
+* `enroll-probe.c` enrolls through `fp_device_enroll_sync()`, round-trips the
+  returned print through libfprint serialization, writes its TGLA payload, and
+  verifies the newly enrolled print;
+* `verify-probe.c` reconstructs the driver's versioned raw-print representation
+  from an existing TGLA file, round-trips it through libfprint serialization,
+  and verifies it through `fp_device_verify_sync()`.
 
-1. calls `fp_device_enroll_sync()`;
-2. round-trips the returned print through `fp_print_serialize()` and
-   `fp_print_deserialize()`;
-3. writes the TGLA from the round-tripped print to the requested output path;
-4. calls `fp_device_verify_sync()` using that newly enrolled print.
-
-The probe therefore checks that enrollment output survives the public libfprint
-serialization path before verification consumes it.
+These probes exercise libfprint's public API. They are diagnostics, not an
+alternative USB owner or a second driver implementation.
 
 ## Applying the overlay
 
-Apply this directory to a clean libfprint 1.94.100 source tree, build the Rust
-bridge, then build libfprint with the overlay in place.
+The overlay targets a clean **libfprint 1.94.100** source tree.
 
-Repository-specific preparation and validation steps are documented in this
-directory and in [`../tools/README.md`](../tools/README.md).
+First build the Rust bridge:
+
+```bash
+cargo build --release --manifest-path libfprint-bridge/Cargo.toml
+```
+
+Stage the bridge library, public header, and pkg-config metadata into a
+self-contained prefix:
+
+```bash
+BRIDGE_STAGE="${TMPDIR:-/tmp}/goodix550a-bridge-stage"
+
+python3 libfprint-bridge/prepare-pkg-config.py \
+  --prefix "$BRIDGE_STAGE"
+```
+
+Expose that staged package to pkg-config:
+
+```bash
+export PKG_CONFIG_PATH="$BRIDGE_STAGE/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+```
+
+Then apply the overlay to a clean libfprint source tree:
+
+```bash
+python3 libfprint-overlay/apply-overlay.py /path/to/libfprint-1.94.100
+```
+
+The staging helper produces a layout like:
+
+```text
+goodix550a-bridge-stage/
+├── include/
+│   └── goodix550a_bridge.h
+└── lib/
+    ├── libgoodix550a_bridge.so
+    └── pkgconfig/
+        └── goodix550a-bridge.pc
+```
+
+The generated `goodix550a-bridge.pc` is relocatable: it derives its prefix
+from the location of the pkg-config file rather than embedding the repository
+checkout path.
+
+For release or provenance-sensitive builds, compiler path remapping of the
+Rust shared library is still a separate build concern. Staging copies the
+already-built artifact; it does not rewrite paths embedded in that binary.
+
+Additional validation procedures are documented in
+[`../tools/README.md`](../tools/README.md).
 
 ## Not implemented
 

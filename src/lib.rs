@@ -23,10 +23,7 @@ mod feature_enrollment;
 pub mod firmware;
 pub mod firmware_auth;
 pub mod image;
-pub mod libfprint;
 pub mod libfprint_wire;
-#[cfg(test)]
-mod persistence_capture;
 pub mod preprocess;
 mod private_file;
 mod protocol;

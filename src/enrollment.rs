@@ -334,8 +334,8 @@ impl From<Gf3258TemplateStorageError> for Gf3258EnrollmentWorkflowError {
     }
 }
 
-/// Stateful in-memory enrollment engine shared by applications and future
-/// driver integration.
+/// Stateful in-memory enrollment engine shared by standalone and libfprint
+/// frontends.
 #[derive(Debug, Clone)]
 pub struct Gf3258EnrollmentWorkflow {
     preprocessor: Gf3258Preprocessor,

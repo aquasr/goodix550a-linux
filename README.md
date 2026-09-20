@@ -292,8 +292,8 @@ and runtime checking.
 | `src/enrollment*.rs`, `src/template*.rs` | Enrollment and template persistence |
 | `src/verification*.rs` | Gallery matching and verification policy |
 | `src/driver.rs` | Capture, enrollment, and verification transactions |
-| `src/libfprint*.rs`, `libfprint-bridge/` | Backend-neutral operations and the C ABI |
-| `libfprint-overlay/` | Asynchronous libfprint driver and integration probes |
+| `src/libfprint_wire.rs`, `libfprint-bridge/` | libfprint transaction engines and the C ABI |
+| `libfprint-overlay/` | Asynchronous libfprint driver, overlay tooling, and public-API probes |
 | `tools/` | Offline parity programs and narrow hardware diagnostics |
 | `PROJECT_HISTORY.md` | Technical progression from initial device access to the current research baseline |
 

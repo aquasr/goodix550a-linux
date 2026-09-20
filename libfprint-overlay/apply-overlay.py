@@ -196,6 +196,10 @@ def main() -> None:
         "The goodix550a-bridge pkg-config dependency is required only when "
         "goodix550a is selected."
     )
+    print(
+        "Ensure PKG_CONFIG_PATH contains the bridge stage's lib/pkgconfig "
+        "directory before configuring Meson."
+    )
 
 
 if __name__ == "__main__":

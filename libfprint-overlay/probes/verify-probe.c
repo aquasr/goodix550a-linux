@@ -83,8 +83,8 @@ print_from_tgla_roundtrip (FpDevice      *device,
                                             GOODIX550A_PRINT_VERSION,
                                             g_variant_ref (bytes)));
 
-  /* Validation adapter only: production enrollment will initialize the same
-   * FPI_PRINT_RAW + fpi-data representation from the Rust enrollment result. */
+  /* Reconstruct the same versioned FPI_PRINT_RAW + fpi-data representation
+   * emitted by the production enrollment path. */
   g_object_set (original,
                 "fpi-type", GOODIX550A_FPI_PRINT_RAW,
                 "fpi-data", data,
