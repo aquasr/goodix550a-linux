@@ -43,7 +43,9 @@ const GET_VERSION_PAYLOAD: [u8; 2] = [0x00, 0x00];
 
 /// ChicagoHGetOtp request used by GF3258 WN2:
 ///
-///     A6 03 00 40 00 C1
+/// ```text
+/// A6 03 00 40 00 C1
+/// ```
 ///
 /// The two payload bytes request exactly 0x40 raw OTP bytes.
 pub(crate) const READ_OTP_PAYLOAD: [u8; 2] = [0x40, 0x00];
@@ -81,10 +83,12 @@ pub(crate) const PSK_READ_CHUNK_SIZE: usize = 0x100;
 
 /// E4 completion payload:
 ///
-///     +0x00  u8      MCU execution status
-///     +0x01  u32 LE  echoed object ID
-///     +0x05  u32 LE  returned object-data length
-///     +0x09  N bytes returned object data
+/// ```text
+/// +0x00  u8      MCU execution status
+/// +0x01  u32 LE  echoed object ID
+/// +0x05  u32 LE  returned object-data length
+/// +0x09  N bytes returned object data
+/// ```
 ///
 const PSK_READ_RESPONSE_HEADER_SIZE: usize = 9;
 
@@ -496,10 +500,12 @@ impl<'a, D: GoodixUsbIo + ?Sized> GoodixTransport<'a, D> {
     /// This transaction is intentionally ACK-only. The successful vendor
     /// sequence is:
     ///
-    ///     A2 02 32
-    ///     -> B0 ACK for A2
-    ///     -> USB detach
-    ///     -> USB attach
+    /// ```text
+    /// A2 02 32
+    /// -> B0 ACK for A2
+    /// -> USB detach
+    /// -> USB attach
+    /// ```
     ///
     /// There is no normal A2 completion packet before re-enumeration, so using
     /// `transact()` here would incorrectly wait until timeout. Device
@@ -798,17 +804,21 @@ impl<'a, D: GoodixUsbIo + ?Sized> GoodixTransport<'a, D> {
     ///
     /// Request payload:
     ///
-    ///     +0x00  u32 LE  requested chunk length
-    ///     +0x04  u32 LE  object offset
-    ///     +0x08  u32 LE  object ID
-    ///     +0x0c  u32 LE  zero/reserved
+    /// ```text
+    /// +0x00  u32 LE  requested chunk length
+    /// +0x04  u32 LE  object offset
+    /// +0x08  u32 LE  object ID
+    /// +0x0c  u32 LE  zero/reserved
+    /// ```
     ///
     /// Response payload:
     ///
-    ///     +0x00  u8      MCU status
-    ///     +0x01  u32 LE  echoed object ID
-    ///     +0x05  u32 LE  returned data length
-    ///     +0x09  N bytes object data
+    /// ```text
+    /// +0x00  u8      MCU status
+    /// +0x01  u32 LE  echoed object ID
+    /// +0x05  u32 LE  returned data length
+    /// +0x09  N bytes object data
+    /// ```
     ///
     /// Vendor code requests at most 0x100 bytes at a time and
     /// advances the offset using the ACTUAL number of bytes returned.
@@ -1030,10 +1040,12 @@ pub(crate) fn build_psk_read_payload(
 ///
 /// Live device traffic established the exact E4 completion layout:
 ///
-///     status
-///     || echoed_object_id
-///     || returned_length
-///     || object_data
+/// ```text
+/// status
+/// || echoed_object_id
+/// || returned_length
+/// || object_data
+/// ```
 ///
 pub(crate) fn parse_psk_read_payload(
     payload: &[u8],
@@ -1122,8 +1134,10 @@ fn parse_chip_id_payload(payload: &[u8]) -> Result<u32, TransportError> {
 ///
 /// Geneva McuParseMsg proves this layout:
 ///
-///     payload[0]  echoed/original command
-///     payload[1]  flags
+/// ```text
+/// payload[0]  echoed/original command
+/// payload[1]  flags
+/// ```
 ///
 /// A normal B0 packet is classified as an ACK independently of payload[1].
 /// Only bit 0x02 is consumed by McuParseMsg, where it becomes the separate

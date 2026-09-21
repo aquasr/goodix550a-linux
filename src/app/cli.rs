@@ -38,9 +38,11 @@ const VERSION_TIMEOUT: Duration = Duration::from_secs(3);
 /// Per-command timeout used by the GF3258 WN2 / ChicagoH volatile
 /// cold-initialization sequence:
 ///
-///     A6 GetOtp
-///     -> validate/generate configuration locally
-///     -> 0x90 DownloadConfig
+/// ```text
+/// A6 GetOtp
+/// -> validate/generate configuration locally
+/// -> 0x90 DownloadConfig
+/// ```
 ///
 /// `chicago_h::initialize()` applies this timeout independently to A6 and
 /// 0x90. It performs no firmware or persistent-state writes.
@@ -273,8 +275,10 @@ fn open_device() -> Result<GoodixDevice, Box<dyn Error>> {
 ///
 /// Device operations performed:
 ///
-///     E4 read 0xbb010002
-///     E4 read 0xbb020001
+/// ```text
+/// E4 read 0xbb010002
+/// E4 read 0xbb020001
+/// ```
 ///
 /// No persistent state is modified.
 fn read_verified_runtime_psk(
@@ -419,25 +423,31 @@ fn live_bootstrap_timeouts() -> BootstrapTimeouts {
 ///
 /// Device side:
 ///
-///     E4 read sealed PSK
-///     E4 read PSK hash
+/// ```text
+/// E4 read sealed PSK
+/// E4 read PSK hash
+/// ```
 ///
 /// Local/offline side:
 ///
-///     parse firmware blob
-///     build WriteApp package
-///     construct all F0 payloads
-///     derive GetPmkHmac
-///     calculate F4
+/// ```text
+/// parse firmware blob
+/// build WriteApp package
+/// construct all F0 payloads
+/// derive GetPmkHmac
+/// calculate F4
+/// ```
 ///
 /// Deliberately NOT performed:
 ///
-///     E0
-///     F0 transmission
-///     F4 transmission
-///     erase
-///     reset
-///     firmware update
+/// ```text
+/// E0
+/// F0 transmission
+/// F4 transmission
+/// erase
+/// reset
+/// firmware update
+/// ```
 fn run_bootstrap_check(
     transport: &mut GoodixTransport<'_>,
     mode: FirmwareMode,

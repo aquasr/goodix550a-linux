@@ -433,7 +433,9 @@ pub fn gf3258_compact_descriptor(
 /// sum_sq is accumulated from unsigned u32 raw bins in 64 bits. b8b40 returns
 /// floor(sqrt(sum_sq)). The clipping threshold is then:
 ///
-///     clip = (norm * 0x3333) >> 16
+/// ```text
+/// clip = (norm * 0x3333) >> 16
+/// ```
 ///
 /// Every output is floor(sqrt(raw[i])) unless raw[i] >= clip (unsigned), in
 /// which case the precomputed floor(sqrt(clip)) is stored. The two bf830 calls

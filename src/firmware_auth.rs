@@ -9,8 +9,10 @@ use std::fmt;
 ///
 /// The driver derives this 32-byte value through:
 ///
-///     FUN_001ff990(1, root[0..16])
-///     FUN_001feea0(root[16..32])
+/// ```text
+/// FUN_001ff990(1, root[0..16])
+/// FUN_001feea0(root[16..32])
+/// ```
 ///
 /// It is then used by GfSealData/GfUnsealData as the HMAC-SHA256
 /// root for the 384-bit key-derivation operation.
@@ -141,28 +143,36 @@ impl std::error::Error for FirmwareAuthError {}
 ///
 /// Recovered vendor construction:
 ///
-///     K1 = HMAC-SHA256(
-///         root,
-///         BE32(1)
-///         || "kgoodwixg\0"
-///         || "kaelrgnoerlithm"
-///         || BE32(0x180)
-///     )
+/// ```text
+/// K1 = HMAC-SHA256(
+///     root,
+///     BE32(1)
+///     || "kgoodwixg\0"
+///     || "kaelrgnoerlithm"
+///     || BE32(0x180)
+/// )
+/// ```
 ///
-///     K2 = HMAC-SHA256(
-///         root,
-///         BE32(2)
-///         || "kgoodwixg\0"
-///         || "kaelrgnoerlithm"
-///         || BE32(0x180)
-///     )
+/// ```text
+/// K2 = HMAC-SHA256(
+///     root,
+///     BE32(2)
+///     || "kgoodwixg\0"
+///     || "kaelrgnoerlithm"
+///     || BE32(0x180)
+/// )
+/// ```
 ///
-///     derived = K1 || K2[0..16]
+/// ```text
+/// derived = K1 || K2[0..16]
+/// ```
 ///
 /// Then:
 ///
-///     derived[0..16]  -> AES-128-CBC key
-///     derived[16..48] -> HMAC-SHA256 key
+/// ```text
+/// derived[0..16]  -> AES-128-CBC key
+/// derived[16..48] -> HMAC-SHA256 key
+/// ```
 pub fn derive_seal_keys() -> ([u8; 16], [u8; 32]) {
     derive_seal_keys_from_root(&SEAL_ROOT_MODE1)
 }
@@ -203,17 +213,21 @@ pub fn derive_seal_keys_from_root(root: &[u8; 32]) -> ([u8; 16], [u8; 32]) {
 ///
 /// Recovered sealed layout:
 ///
-///     +0x00  32 bytes  HMAC-SHA256
-///     +0x20   2 bytes  marker = LE16(0xff01)
-///     +0x22   4 bytes  plaintext length, LE
-///     +0x26  16 bytes  AES-CBC IV
-///     +0x36   N bytes  ciphertext
+/// ```text
+/// +0x00  32 bytes  HMAC-SHA256
+/// +0x20   2 bytes  marker = LE16(0xff01)
+/// +0x22   4 bytes  plaintext length, LE
+/// +0x26  16 bytes  AES-CBC IV
+/// +0x36   N bytes  ciphertext
+/// ```
 ///
 /// HMAC input:
 ///
-///     marker
-///     || plaintext_length
-///     || ciphertext
+/// ```text
+/// marker
+/// || plaintext_length
+/// || ciphertext
+/// ```
 ///
 /// The IV is deliberately NOT included in the authenticated input,
 /// matching the proprietary implementation.
@@ -325,25 +339,31 @@ pub fn verify_psk_hash(psk: &[u8], expected_hash: &[u8]) -> bool {
 /// 1. Allocate zeroed 0x44-byte input.
 /// 2. Set:
 ///
-///        input[0x01] = 0x20
-///        input[0x23] = 0x20
+/// ```text
+///    input[0x01] = 0x20
+///    input[0x23] = 0x20
+/// ```
 ///
 /// 3. Copy PSK to input + 0x24.
 ///
-///    The vendor uses __memcpy_chk with destination size 0x20,
-///    therefore the PSK must be <= 32 bytes.
+/// The vendor uses `__memcpy_chk` with destination size `0x20`,
+/// therefore the PSK must be at most 32 bytes.
 ///
 /// 4. SHA256 the entire 0x44-byte input.
 /// 5. Copy that 32-byte digest into the beginning of a zeroed
 ///    64-byte buffer.
 /// 6. HMAC-SHA256 that 64-byte key over:
 ///
-///        01 02 03 ... 40
+/// ```text
+///    01 02 03 ... 40
+/// ```
 ///
 /// For the captured 32-byte zero PSK this produces:
 ///
-///     0ac39058f7e4bc0025a18bd069e7a04e
-///     a4399531175a3b1726b22e4e4266983a
+/// ```text
+/// 0ac39058f7e4bc0025a18bd069e7a04e
+/// a4399531175a3b1726b22e4e4266983a
+/// ```
 ///
 /// # Errors
 ///
@@ -388,19 +408,25 @@ pub fn get_pmk_hmac_from_psk(psk: &[u8]) -> Result<[u8; 32], FirmwareAuthError> 
 ///
 /// Vendor WriteApp performs:
 ///
-///     pmk_hmac = GetPmkHmac(actual_runtime_psk)
+/// ```text
+/// pmk_hmac = GetPmkHmac(actual_runtime_psk)
+/// ```
 ///
-///     f4 = HMAC-SHA256(
-///         key     = pmk_hmac,
-///         message = complete APP transfer package
-///     )
+/// ```text
+/// f4 = HMAC-SHA256(
+///     key     = pmk_hmac,
+///     message = complete APP transfer package
+/// )
+/// ```
 ///
 /// The package is:
 ///
-///     header_crc
-///     || app_len
-///     || app_crc
-///     || APP
+/// ```text
+/// header_crc
+/// || app_len
+/// || app_crc
+/// || APP
+/// ```
 ///
 /// The PSK is intentionally an explicit parameter. Production code
 /// must not fall back to the `_McuCreateContext` placeholder
