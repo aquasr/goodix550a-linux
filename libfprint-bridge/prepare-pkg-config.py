@@ -17,6 +17,8 @@ PACKAGE_VERSION = "0.1.0"
 
 def main() -> None:
     crate = Path(__file__).resolve().parent
+    workspace = crate.parent
+    release = workspace / "target" / "release"
 
     parser = argparse.ArgumentParser(
         description=(
@@ -27,16 +29,13 @@ def main() -> None:
     parser.add_argument(
         "--prefix",
         type=Path,
-        default=crate / "target" / "release" / "stage",
-        help=(
-            "staging prefix; defaults to "
-            "libfprint-bridge/target/release/stage"
-        ),
+        default=release / "stage",
+        help="staging prefix; defaults to target/release/stage",
     )
     parser.add_argument(
         "--library",
         type=Path,
-        default=crate / "target" / "release" / LIBRARY_NAME,
+        default=release / LIBRARY_NAME,
         help="bridge shared library to stage",
     )
     args = parser.parse_args()

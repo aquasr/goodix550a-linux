@@ -1,3 +1,7 @@
+[workspace]
+members = ["libfprint-bridge"]
+resolver = "3"
+
 [package]
 name = "goodix550a-driver"
 version = "0.1.0"

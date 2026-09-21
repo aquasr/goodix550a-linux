@@ -158,6 +158,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodix550a-libfprint-bridge"
+version = "0.1.0"
+dependencies = [
+ "goodix550a-driver",
+]
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
