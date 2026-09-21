@@ -640,9 +640,8 @@ const OPERANDS: [[i64; 8]; 191] = [
     [1, 0, -1, -1, -1, 0, 0, 217],
 ];
 
-// Recovered program data. Keep the instruction representation as a constant table.
-#[allow(clippy::large_const_arrays)]
-const PROGRAM: [[usize; 4]; 1089] = [
+// Recovered program data. Keep the instruction representation as a static table.
+static PROGRAM: [[usize; 4]; 1089] = [
     [1, 0, 1, 0],
     [18, 0, 0, 0],
     [0, 0, 0, 0],

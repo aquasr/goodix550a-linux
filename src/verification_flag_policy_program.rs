@@ -627,9 +627,8 @@ pub(super) fn refine(
     }
 }
 
-// Recovered program data. Keep the instruction representation as a constant table.
-#[allow(clippy::large_const_arrays)]
-const OPERANDS: [[i64; 6]; 550] = [
+// Recovered program data. Keep the instruction representation as a static table.
+static OPERANDS: [[i64; 6]; 550] = [
     [0, 64, 15, 0, 0, 0],
     [0, 32, 9, 0, 0, 0],
     [1, 0, 0, 0, 0, 12],
@@ -1710,9 +1709,8 @@ const FALLBACK_72EA0: [[i32; 4]; 248] = [
     [80, 216, 0, 0],
 ];
 
-// Recovered program data. Keep the instruction representation as a constant table.
-#[allow(clippy::large_const_arrays)]
-const POLICY_VETO_73C30: [[i32; 4]; 5361] = [
+// Recovered program data. Keep the instruction representation as a static table.
+static POLICY_VETO_73C30: [[i32; 4]; 5361] = [
     [1, 0, 0, 0],
     [1, 5, 0, 0],
     [1, 6, 0, 0],
@@ -7076,9 +7074,8 @@ const POLICY_VETO_73C30: [[i32; 4]; 5361] = [
     [80, 2371, 0, 0],
 ];
 
-// Recovered program data. Keep the instruction representation as a constant table.
-#[allow(clippy::large_const_arrays)]
-const DUAL_REFINE_7A240: [[i32; 4]; 11265] = [
+// Recovered program data. Keep the instruction representation as a static table.
+static DUAL_REFINE_7A240: [[i32; 4]; 11265] = [
     [1, 0, 0, 0],
     [1, 5, 0, 0],
     [1, 6, 0, 0],

@@ -312,9 +312,8 @@ const fn to_usize(value: i32) -> usize {
     value as usize
 }
 
-// Recovered program data. Keep the instruction representation as a constant table.
-#[allow(clippy::large_const_arrays)]
-const PROGRAM: [[i32; 4]; 1113] = [
+// Recovered program data. Keep the instruction representation as a static table.
+static PROGRAM: [[i32; 4]; 1113] = [
     [6, 259, -1, 23],
     [1, 257, 0, 0],
     [13, 0, 10, 11],
