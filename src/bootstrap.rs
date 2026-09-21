@@ -486,17 +486,6 @@ mod tests {
     }
 
     #[test]
-    fn target_versions_are_exact() {
-        assert_eq!(EXPECTED_IAP_VERSION, "MILAN_GM168SEC_IAP_10007");
-        assert_eq!(EXPECTED_APP_VERSION, "GFUSB_GM168SEC_APP_15045");
-    }
-
-    #[test]
-    fn vendor_reenumeration_bound_is_ten_seconds() {
-        assert_eq!(REENUMERATION_TIMEOUT, Duration::from_secs(10));
-    }
-
-    #[test]
     fn extracts_exact_app_version_from_metadata() {
         let raw = synthetic_blob(b"GFUSB_GM168SEC_APP_15045", &[0x11, 0x22, 0x33, 0x44]);
 
@@ -529,19 +518,6 @@ mod tests {
                 .to_string()
                 .contains("exact GM168SEC APP15045 bootstrap regression")
         );
-    }
-
-    #[test]
-    fn pending_token_fields_flow_into_final_result_shape() {
-        let pending = PendingColdBootstrap {
-            expected_app_version: EXPECTED_APP_VERSION.to_owned(),
-            f0_chunks_sent: 98,
-            firmware_check_result: 0x01,
-        };
-
-        assert_eq!(pending.expected_app_version, EXPECTED_APP_VERSION);
-        assert_eq!(pending.f0_chunks_sent, 98);
-        assert_ne!(pending.firmware_check_result, 0);
     }
 
     #[derive(Debug)]

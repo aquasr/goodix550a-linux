@@ -881,11 +881,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cordic_table_and_axis_anchors_are_exact() {
-        assert_eq!(
-            GF3258_CORDIC_ATAN_Q12,
-            [3217, 1899, 1003, 509, 256, 128, 64, 32, 16, 8, 4, 2, 1,]
-        );
+    fn cordic_axis_anchors_are_exact() {
         assert_eq!(gf3258_cordic_sin_cos_q14(0), (0, 0x4000));
         assert_eq!(
             gf3258_cordic_sin_cos_q14((GF3258_PI_Q12 / 2) as u16),
@@ -935,16 +931,6 @@ mod tests {
             full - GF3258_PI_Q12
         };
         assert_eq!(folded, 12_185);
-    }
-
-    #[test]
-    fn gradient_filter_records_are_exact_normalized_q16() {
-        assert_eq!(GF3258_GRADIENT_GAUSS_0.len(), 9);
-        assert_eq!(GF3258_GRADIENT_GAUSS_1.len(), 7);
-        assert_eq!(GF3258_GRADIENT_GAUSS_0.iter().sum::<i32>(), 65_536);
-        assert_eq!(GF3258_GRADIENT_GAUSS_1.iter().sum::<i32>(), 65_536);
-        assert_eq!(GF3258_GRADIENT_GAUSS_0[4], 21_790);
-        assert_eq!(GF3258_GRADIENT_GAUSS_1[3], 28_430);
     }
 
     #[test]
@@ -1001,33 +987,6 @@ mod tests {
         let center = (GF3258_HEIGHT / 2) * GF3258_WIDTH + GF3258_WIDTH / 2;
         assert_eq!(planes.magnitude_map_i32[center], 0);
         assert_eq!(planes.angle_map_u16[center], GF3258_PI_Q12 as u16);
-    }
-
-    #[test]
-    fn c7310_static_line_table_matches_recovered_shape() {
-        assert_eq!(GF3258_C7310_WEIGHTS, [1, 2, 4, 8, 4, 2, 1]);
-        assert_eq!(GF3258_C7310_WEIGHTS.iter().sum::<i32>(), 22);
-
-        for class in GF3258_C7310_DIRECTION_OFFSETS {
-            assert_eq!(class[3], (0, 0));
-        }
-
-        assert_eq!(
-            GF3258_C7310_DIRECTION_OFFSETS[0],
-            [(-3, 0), (-2, 0), (-1, 0), (0, 0), (1, 0), (2, 0), (3, 0)]
-        );
-        assert_eq!(
-            GF3258_C7310_DIRECTION_OFFSETS[3],
-            [(-3, -3), (-2, -2), (-1, -1), (0, 0), (1, 1), (2, 2), (3, 3)]
-        );
-        assert_eq!(
-            GF3258_C7310_DIRECTION_OFFSETS[6],
-            [(0, -3), (0, -2), (0, -1), (0, 0), (0, 1), (0, 2), (0, 3)]
-        );
-        assert_eq!(
-            GF3258_C7310_DIRECTION_OFFSETS[9],
-            [(-3, 3), (-2, 2), (-1, 1), (0, 0), (1, -1), (2, -2), (3, -3)]
-        );
     }
 
     #[test]

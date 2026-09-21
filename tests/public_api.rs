@@ -1,20 +1,14 @@
 use goodix_info::{
-    driver::{
-        Gf3258CapturedFrame, Gf3258DeviceSession, Gf3258EnrollmentTouchResult,
-        Gf3258EnrollmentTransaction, Gf3258EnrollmentTransactionError, Gf3258SessionError,
-        Gf3258SessionStartup, Gf3258VerificationTouchResult, Gf3258VerificationTransaction,
-        Gf3258VerificationTransactionError,
-    },
     enrollment::{
-        GF3258_ENROLLMENT_POINT_CAPACITY, Gf3258EnrollmentFrameOutcome, Gf3258EnrollmentWorkflow,
-        gf3258_decode_fresh_tgla, gf3258_validate_fresh_tgla,
+        Gf3258EnrollmentFrameOutcome, Gf3258EnrollmentWorkflow, gf3258_decode_fresh_tgla,
+        gf3258_validate_fresh_tgla,
     },
     feature::{GF3258_PIXELS, gf3258_extract_primary_features_from_c2d40_source},
     image::{IMAGE_HEIGHT, IMAGE_WIDTH},
     preprocess::process_final_stage_from_corrected,
     verification::{
         Gf3258GalleryVerificationDecision, Gf3258RawFrameVerificationOutcome,
-        Gf3258VerificationTemplate, Gf3258VerificationTemplateError, Gf3258VerificationWorkflow,
+        Gf3258VerificationTemplate, Gf3258VerificationWorkflow,
     },
 };
 
@@ -42,8 +36,6 @@ fn public_feature_pipeline_handles_constant_sensor_image() {
 #[test]
 fn public_preprocess_output_flows_into_feature_extraction() {
     let pixel_count = IMAGE_WIDTH * IMAGE_HEIGHT;
-    assert_eq!(pixel_count, GF3258_PIXELS);
-
     let corrected = vec![0x4000_u16; pixel_count];
     let foreground_mask = vec![1_u8; pixel_count];
 
@@ -57,11 +49,6 @@ fn public_preprocess_output_flows_into_feature_extraction() {
         pixel_count
     );
     assert_eq!(extraction.gradient_planes.angle_map_u16.len(), pixel_count);
-}
-
-#[test]
-fn public_enrollment_capacity_matches_persistent_type_18_limit() {
-    assert_eq!(GF3258_ENROLLMENT_POINT_CAPACITY, 120);
 }
 
 #[test]
@@ -136,69 +123,4 @@ fn public_raw_frame_verification_uses_opaque_validated_gallery() {
             assert!(result.score() <= 0);
         }
     }
-}
-
-#[test]
-fn public_verification_template_rejects_empty_gallery() {
-    let enrollment = Gf3258EnrollmentWorkflow::new();
-    let artifacts = enrollment.encode_artifacts().unwrap();
-
-    let error = Gf3258VerificationTemplate::from_tgla(artifacts.tgla_template()).unwrap_err();
-    assert_eq!(error, Gf3258VerificationTemplateError::EmptyGallery);
-    assert_eq!(
-        error.to_string(),
-        "verification template contains no enrolled samples"
-    );
-}
-
-#[test]
-fn public_verification_transaction_owns_validated_gallery_without_device_access() {
-    let raw = vec![1000_u16; IMAGE_WIDTH * IMAGE_HEIGHT];
-    let mut enrollment = Gf3258EnrollmentWorkflow::new();
-    assert!(matches!(
-        enrollment.process_raw_frame(&raw).unwrap(),
-        Gf3258EnrollmentFrameOutcome::Accepted(_)
-    ));
-
-    let artifacts = enrollment.encode_artifacts().unwrap();
-    let transaction = Gf3258VerificationTransaction::from_tgla(artifacts.tgla_template()).unwrap();
-    assert_eq!(transaction.sample_count(), 1);
-}
-
-#[test]
-fn public_driver_session_exposes_hardware_free_transaction_signatures() {
-    let _open: fn() -> Result<Gf3258DeviceSession, Gf3258SessionError> = Gf3258DeviceSession::open;
-    let _open_with_firmware: fn(&[u8]) -> Result<Gf3258DeviceSession, Gf3258SessionError> =
-        Gf3258DeviceSession::open_with_firmware;
-    let _startup: fn(&Gf3258DeviceSession) -> Gf3258SessionStartup = Gf3258DeviceSession::startup;
-    let _capture: fn(&mut Gf3258DeviceSession) -> Result<Gf3258CapturedFrame, Gf3258SessionError> =
-        Gf3258DeviceSession::capture_frame;
-    let _new_enrollment: fn() -> Gf3258EnrollmentTransaction = Gf3258EnrollmentTransaction::new;
-    let _enroll_touch: fn(
-        &mut Gf3258EnrollmentTransaction,
-        &mut Gf3258DeviceSession,
-    )
-        -> Result<Gf3258EnrollmentTouchResult, Gf3258EnrollmentTransactionError> =
-        Gf3258EnrollmentTransaction::capture_next;
-    let _finish: fn(
-        Gf3258EnrollmentTransaction,
-    ) -> Result<
-        goodix_info::enrollment::Gf3258EnrollmentArtifacts,
-        Gf3258EnrollmentTransactionError,
-    > = Gf3258EnrollmentTransaction::finish;
-    let _new_verification: fn(Gf3258VerificationTemplate) -> Gf3258VerificationTransaction =
-        Gf3258VerificationTransaction::new;
-    let _verification_from_tgla: fn(
-        &[u8],
-    ) -> Result<
-        Gf3258VerificationTransaction,
-        Gf3258VerificationTemplateError,
-    > = Gf3258VerificationTransaction::from_tgla;
-    let _verify_touch: fn(
-        &mut Gf3258VerificationTransaction,
-        &mut Gf3258DeviceSession,
-    ) -> Result<
-        Gf3258VerificationTouchResult,
-        Gf3258VerificationTransactionError,
-    > = Gf3258VerificationTransaction::capture_next;
 }

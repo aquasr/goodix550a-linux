@@ -4920,7 +4920,6 @@ mod tests {
 
     #[test]
     fn gf3258_metric_contribution_uses_exact_divisor_and_rounding() {
-        assert_eq!(GF3258_VERIFICATION_METRIC_DIVISOR, 31);
         assert_eq!(gf3258_verification_metric_contribution_q8(0), 0);
         assert_eq!(gf3258_verification_metric_contribution_q8(1), 8);
         assert_eq!(gf3258_verification_metric_contribution_q8(5), 41);

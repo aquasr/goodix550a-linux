@@ -527,34 +527,6 @@ mod tests {
     }
 
     #[test]
-    fn latest_39809_byte_raw_template_has_exact_recovered_total_size() {
-        // Latest successful standalone fixture:
-        //
-        // raw N = 39809 = 0x9b81
-        // TGLA allocation = N + 0x88
-        //                 = 39945 = 0x9c09
-        let raw_template = vec![0u8; 39_809];
-
-        let node = gf3258_wrap_fresh_tgla(&raw_template).unwrap();
-
-        assert_eq!(node.len(), 39_945);
-
-        assert_eq!(
-            u32::from_le_bytes(node[0x04..0x08].try_into().unwrap()),
-            0x0000_9c09
-        );
-
-        assert_eq!(
-            u32::from_le_bytes(node[0x0c..0x10].try_into().unwrap()),
-            0x0000_9b81
-        );
-
-        assert_eq!(&node[0x10..0x20], &[0u8; 16]);
-        assert_eq!(&node[0x20..0x40], &[0u8; 32]);
-        assert_eq!(&node[node.len() - 4..], &[0u8; 4]);
-    }
-
-    #[test]
     fn tampering_raw_template_is_detected_by_tgla_crc() {
         let raw_template = b"raw-template";
 

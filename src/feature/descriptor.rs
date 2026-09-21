@@ -735,30 +735,4 @@ mod tests {
             ]
         );
     }
-
-    #[test]
-    fn descriptor_central_2x2_layout_is_cell_5_6_9_10() {
-        let mut descriptor = [0u32; GF3258_DESCRIPTOR_LEN];
-        for (i, value) in descriptor.iter_mut().enumerate() {
-            *value = i as u32;
-        }
-
-        let cells = [5usize, 6, 9, 10];
-        let mut central = [0u32; GF3258_DESCRIPTOR_CENTRAL_LEN];
-        let mut out = 0usize;
-        for cell in cells {
-            let src = cell * GF3258_DESCRIPTOR_ORIENTATION_BINS;
-            central[out..out + 8].copy_from_slice(&descriptor[src..src + 8]);
-            out += 8;
-        }
-
-        assert_eq!(central[0], 40);
-        assert_eq!(central[7], 47);
-        assert_eq!(central[8], 48);
-        assert_eq!(central[15], 55);
-        assert_eq!(central[16], 72);
-        assert_eq!(central[23], 79);
-        assert_eq!(central[24], 80);
-        assert_eq!(central[31], 87);
-    }
 }

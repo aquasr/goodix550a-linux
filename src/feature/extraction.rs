@@ -359,12 +359,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn c2d40_mode6_record_is_exact() {
-        assert_eq!(GF3258_C2D40_MODE6_KERNEL, [21_845, 21_845, 21_845]);
-        assert_eq!(GF3258_C2D40_MODE6_KERNEL.iter().sum::<i32>(), 65_535);
-    }
-
-    #[test]
     fn c2d40_mode6_preserves_vendor_two_pass_truncation() {
         let source = vec![127u8; GF3258_PIXELS];
         let detector = gf3258_c2d40_detector_source(&source).unwrap();

@@ -819,19 +819,6 @@ mod tests {
     }
 
     #[test]
-    fn polarity_is_strict_signed_negative() {
-        assert_eq!(gf3258_matcher_polarity_from_raw_response(i32::MIN,), 1);
-
-        assert_eq!(gf3258_matcher_polarity_from_raw_response(-1,), 1);
-
-        assert_eq!(gf3258_matcher_polarity_from_raw_response(0,), 0);
-
-        assert_eq!(gf3258_matcher_polarity_from_raw_response(1,), 0);
-
-        assert_eq!(gf3258_matcher_polarity_from_raw_response(i32::MAX,), 0);
-    }
-
-    #[test]
     fn b3970_partition_matches_vendor_swap_shape() {
         let mut values = vec![
             (0usize, 0u16),

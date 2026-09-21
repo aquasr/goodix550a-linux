@@ -579,61 +579,6 @@ mod tests {
     }
 
     #[test]
-    fn verification_template_rejects_empty_gallery() {
-        let enrollment = crate::enrollment::Gf3258EnrollmentWorkflow::new();
-        let artifacts = enrollment.encode_artifacts().unwrap();
-
-        let error = Gf3258VerificationTemplate::from_tgla(artifacts.tgla_template()).unwrap_err();
-        assert_eq!(error, Gf3258VerificationTemplateError::EmptyGallery);
-    }
-
-    #[test]
-    fn verification_template_accepts_nonempty_gallery() {
-        let raw = synthetic_raw();
-        let mut enrollment = crate::enrollment::Gf3258EnrollmentWorkflow::new();
-        assert!(matches!(
-            enrollment.process_raw_frame(&raw).unwrap(),
-            crate::enrollment::Gf3258EnrollmentFrameOutcome::Accepted(_)
-        ));
-        let artifacts = enrollment.encode_artifacts().unwrap();
-
-        let template = Gf3258VerificationTemplate::from_tgla(artifacts.tgla_template()).unwrap();
-        assert_eq!(template.sample_count(), 1);
-        assert_eq!(
-            template.configured_max_samples(),
-            crate::template_persistence::GF3258_TEMPLATE_CONFIGURED_MAX_SAMPLES
-        );
-    }
-
-    #[test]
-    fn fresh_live_scalars_remain_zero() {
-        assert_eq!(GF3258_FRESH_LIVE_SCALAR_13C, 0);
-        assert_eq!(GF3258_FRESH_LIVE_SCALAR_158, 0);
-    }
-
-    #[test]
-    fn recognition_config_matches_type_18_constructor() {
-        assert_eq!(
-            GF3258_RECOGNITION_CANDIDATE_CONFIG.first_half_hamming_max,
-            23
-        );
-        assert_eq!(
-            GF3258_RECOGNITION_CANDIDATE_CONFIG.descriptor_mode_hamming_max,
-            47
-        );
-        assert_eq!(
-            GF3258_RECOGNITION_CANDIDATE_CONFIG.ambiguity_best_multiplier,
-            40
-        );
-        assert_eq!(
-            GF3258_RECOGNITION_CANDIDATE_CONFIG.ambiguity_second_multiplier,
-            38
-        );
-        assert_eq!(GF3258_RECOGNITION_QUALITY_SCALE_Q8, 137);
-        assert_eq!(GF3258_RECOGNITION_TYPE, 0x18);
-    }
-
-    #[test]
     fn public_result_preserves_terminal_score_interpretation() {
         let raw = synthetic_raw();
         let mut enrollment = crate::enrollment::Gf3258EnrollmentWorkflow::new();

@@ -274,18 +274,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bd720_static_constants_match_vendor_records() {
-        assert_eq!(
-            GF3258_BD720_MODE7_KERNEL,
-            [3_571, 16_004, 26_386, 16_004, 3_571]
-        );
-        assert_eq!(GF3258_BD720_MODE7_KERNEL.iter().sum::<i32>(), 65_536);
-        assert_eq!(GF3258_BD720_BOX_RADIUS, 7);
-        assert_eq!(GF3258_BD720_BOX_RECIP_Q16, 291);
-        assert_eq!(GF3258_BD720_THRESHOLD, 110);
-    }
-
-    #[test]
     fn bd720_constant_image_has_zero_validity() {
         let image = vec![127u8; GF3258_PIXELS];
         let result = gf3258_bd720_validity(&image).unwrap();
@@ -336,12 +324,5 @@ mod tests {
 
         seven[GF3258_WIDTH + 3] = 1;
         assert_eq!(gf3258_a8200_quarter_validity(&seven).unwrap()[0], 1);
-    }
-
-    #[test]
-    fn a8200_output_geometry_is_20_by_16() {
-        assert_eq!(GF3258_A8200_WIDTH, 20);
-        assert_eq!(GF3258_A8200_HEIGHT, 16);
-        assert_eq!(GF3258_A8200_CELLS, 320);
     }
 }

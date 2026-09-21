@@ -64,26 +64,3 @@ pub(super) fn invalid_input(message: impl Into<String>) -> AppError {
 pub(super) fn invalid_data(message: impl Into<String>) -> AppError {
     AppError::invalid_data(message)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn invalid_input_preserves_kind_and_message() {
-        let error = AppError::invalid_input("bad option");
-
-        assert_eq!(error.kind(), AppErrorKind::InvalidInput);
-        assert_eq!(error.message(), "bad option");
-        assert_eq!(error.to_string(), "bad option");
-    }
-
-    #[test]
-    fn invalid_data_preserves_kind_and_message() {
-        let error = AppError::invalid_data("bad capture");
-
-        assert_eq!(error.kind(), AppErrorKind::InvalidData);
-        assert_eq!(error.message(), "bad capture");
-        assert_eq!(error.to_string(), "bad capture");
-    }
-}

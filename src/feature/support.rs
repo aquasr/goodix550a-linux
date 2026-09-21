@@ -258,16 +258,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn proximity_table_matches_recovered_anchors() {
-        assert_eq!(GF3258_SUPPORT_PROXIMITY_TABLE.len(), 256);
-        assert_eq!(GF3258_SUPPORT_PROXIMITY_TABLE[0], 1);
-        assert_eq!(GF3258_SUPPORT_PROXIMITY_TABLE[12], 2);
-        assert_eq!(GF3258_SUPPORT_PROXIMITY_TABLE[128], 17);
-        assert_eq!(GF3258_SUPPORT_PROXIMITY_TABLE[254], 39);
-        assert_eq!(GF3258_SUPPORT_PROXIMITY_TABLE[255], 39);
-    }
-
-    #[test]
     fn support_uses_integer_coordinates_and_biased_average() {
         let points = [
             Gf3258SupportPoint {

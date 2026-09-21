@@ -726,13 +726,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_state_matches_vendor_fallback_planes() {
-        let preprocessor = Gf3258Preprocessor::default();
-        assert!(preprocessor.calibration.iter().all(|&v| v == 0x2000));
-        assert!(preprocessor.secondary_calibration.iter().all(|&v| v == 0));
-    }
-
-    #[test]
     fn raw_validator_uses_strict_bounds_and_strict_majority() {
         let mut raw = vec![0_u16; PIXEL_COUNT];
         let mut filled = 0_usize;
