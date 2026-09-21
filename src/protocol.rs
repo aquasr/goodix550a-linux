@@ -15,38 +15,46 @@ const MIN_PACKET_LEN: usize = OUTER_HEADER_LEN + MCU_HEADER_LEN + MCU_TRAILER_LE
 const USB_OUT_FRAME_SIZE: usize = 64;
 const MAX_SINGLE_FRAME_INNER_LEN: usize = USB_OUT_FRAME_SIZE - OUTER_HEADER_LEN;
 
-#[allow(dead_code)]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Command {
+    #[expect(dead_code, reason = "retained recovered protocol opcode")]
     Nop = 0x00,
 
     GetImage = 0x20,
 
     FdtDown = 0x32,
     FdtUp = 0x34,
+    #[expect(dead_code, reason = "retained recovered protocol opcode")]
     FdtManual = 0x36,
 
+    #[expect(dead_code, reason = "retained recovered protocol opcode")]
     Sleep = 0x60,
+    #[expect(dead_code, reason = "retained recovered protocol opcode")]
     Idle = 0x70,
 
+    #[expect(dead_code, reason = "retained recovered protocol opcode")]
     WriteRegister = 0x80,
     ReadRegister = 0x82,
 
     DownloadConfig = 0x90,
 
     ResetChip = 0xA2,
+    #[expect(dead_code, reason = "retained recovered protocol opcode")]
     EraseApp = 0xA4,
     ReadOtp = 0xA6,
     GetVersion = 0xA8,
 
     Ack = 0xB0,
 
+    #[expect(dead_code, reason = "retained recovered protocol opcode")]
     DriverState = 0xC4,
 
+    #[expect(dead_code, reason = "retained recovered protocol opcode")]
     TlsConnection = 0xD0,
     TlsPovImage = 0xD2,
 
+    #[expect(dead_code, reason = "retained recovered protocol opcode")]
     PskWrite = 0xE0,
     PskRead = 0xE4,
 
