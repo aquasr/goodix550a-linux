@@ -446,8 +446,7 @@ impl<'a, D: GoodixUsbIo + ?Sized> GoodixTransport<'a, D> {
     /// Higher layers decide what the completion payload means. In
     /// particular, WriteApp ignores the F0 completion byte, while F4 treats
     /// a zero result as failure and any non-zero result as success.
-    #[allow(dead_code)]
-    pub(crate) fn transact_firmware(
+        pub(crate) fn transact_firmware(
         &mut self,
         command: Command,
         payload: &[u8],
@@ -470,8 +469,7 @@ impl<'a, D: GoodixUsbIo + ?Sized> GoodixTransport<'a, D> {
     ///
     /// This method is intentionally not called by any CLI action. Merely
     /// compiling it does not transmit F0 or F4.
-    #[allow(dead_code)]
-    pub(crate) fn write_app_transfer(
+        pub(crate) fn write_app_transfer(
         &mut self,
         package: &AppTransferPackage,
         f4_tag: &[u8; F4_TAG_LEN],
@@ -510,8 +508,7 @@ impl<'a, D: GoodixUsbIo + ?Sized> GoodixTransport<'a, D> {
     /// There is no normal A2 completion packet before re-enumeration, so using
     /// `transact()` here would incorrectly wait until timeout. Device
     /// detach/attach and reopening are handled above this borrowed transport.
-    #[allow(dead_code)]
-    pub(crate) fn reset_mcu(&mut self, timeout: Duration) -> Result<(), TransportError> {
+        pub(crate) fn reset_mcu(&mut self, timeout: Duration) -> Result<(), TransportError> {
         self.send_command(Command::ResetChip, &RESET_MCU_PAYLOAD)?;
 
         let deadline = Instant::now() + timeout;
@@ -525,8 +522,7 @@ impl<'a, D: GoodixUsbIo + ?Sized> GoodixTransport<'a, D> {
     /// device returns both a B0 ACK and an A2 completion packet. The vendor
     /// loader only cares that the command succeeds; the completion payload is
     /// not interpreted here.
-    #[allow(dead_code)]
-    pub(crate) fn reset_fingerprint(&mut self, timeout: Duration) -> Result<(), TransportError> {
+        pub(crate) fn reset_fingerprint(&mut self, timeout: Duration) -> Result<(), TransportError> {
         let _completion = self.transact(Command::ResetChip, &RESET_FINGERPRINT_PAYLOAD, timeout)?;
 
         Ok(())
@@ -538,8 +534,7 @@ impl<'a, D: GoodixUsbIo + ?Sized> GoodixTransport<'a, D> {
     /// recovered as `SwapU16ByteOrderInPlace`, swapping bytes inside each
     /// 16-bit word before interpreting the resulting four bytes as little-endian
     /// u32.
-    #[allow(dead_code)]
-    pub(crate) fn read_chip_id(&mut self, timeout: Duration) -> Result<u32, TransportError> {
+        pub(crate) fn read_chip_id(&mut self, timeout: Duration) -> Result<u32, TransportError> {
         let packet = self.transact(Command::ReadRegister, &GET_CHIP_ID_PAYLOAD, timeout)?;
         parse_chip_id_payload(&packet.payload)
     }
@@ -556,8 +551,7 @@ impl<'a, D: GoodixUsbIo + ?Sized> GoodixTransport<'a, D> {
     /// This method is intentionally not reachable from the CLI. It assumes the
     /// caller has already completed McuResetMcu and USB detach -> attach, and is
     /// using a fresh transport bound to the re-enumerated device.
-    #[allow(dead_code)]
-    pub(crate) fn validate_post_reenumeration(
+        pub(crate) fn validate_post_reenumeration(
         &mut self,
         reset_timeout: Duration,
         chip_id_timeout: Duration,

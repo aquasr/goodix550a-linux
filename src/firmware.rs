@@ -493,7 +493,6 @@ impl AppTransferPackage {
 /// - verify the post-reset APP version or chip ID.
 ///
 /// Those operations belong to the higher-level cold-bootstrap state machine.
-#[allow(dead_code)]
 pub fn write_app_transfer<E, F>(
     package: &AppTransferPackage,
     f4_tag: &[u8; F4_TAG_LEN],

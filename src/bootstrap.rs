@@ -155,7 +155,6 @@ pub(crate) fn validate_cold_bootstrap_firmware(firmware_blob: &[u8]) -> Result<(
 ///
 /// No proprietary host driver or Goodix shared object participates in this
 /// function.
-#[allow(dead_code)]
 pub(crate) fn cold_bootstrap(
     old_device: GoodixDevice,
     trace: TraceLogger,
@@ -243,7 +242,6 @@ pub(crate) fn cold_bootstrap(
 ///
 /// The reopened device is returned alongside the final result so normal APP
 /// initialization can continue on that exact fresh device instance.
-#[allow(dead_code)]
 pub(crate) fn orchestrate_reenumeration<
     OldDevice,
     Pending,
@@ -308,7 +306,6 @@ where
 /// After this function returns successfully, the caller must immediately
 /// drop the old `GoodixTransport` and old `GoodixDevice` before calling
 /// `wait_for_reenumerated_device()`.
-#[allow(dead_code)]
 pub(crate) fn begin_cold_bootstrap<D: GoodixUsbIo + ?Sized>(
     transport: &mut GoodixTransport<'_, D>,
     firmware_blob: &[u8],
@@ -402,7 +399,6 @@ pub(crate) fn begin_cold_bootstrap<D: GoodixUsbIo + ?Sized>(
 ///
 /// The 10-second deadline is the exact upper bound recovered from Geneva
 /// WriteApp's hotplug-event wait.
-#[allow(dead_code)]
 pub(crate) fn wait_for_reenumerated_device() -> Result<GoodixDevice, ReenumerationError> {
     GoodixDevice::wait_for_reenumeration(REENUMERATION_TIMEOUT)
 }
@@ -424,7 +420,6 @@ pub(crate) fn wait_for_reenumerated_device() -> Result<GoodixDevice, Reenumerati
 ///
 /// The A2/reset-fingerprint + chip-ID sequence is the normal loader
 /// initialization path after UpdateFirmware succeeds.
-#[allow(dead_code)]
 pub(crate) fn finish_cold_bootstrap<D: GoodixUsbIo + ?Sized>(
     pending: PendingColdBootstrap,
     transport: &mut GoodixTransport<'_, D>,
