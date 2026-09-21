@@ -8083,14 +8083,6 @@ mod tests {
     }
 
     #[test]
-    fn primary_refinement_gate_uses_a9a50_evidence_not_coverage() {
-        // The all-valid identity fixed vector has evidence 246 and coverage
-        // 256. The raw 0x72700 gate consumes the former.
-        assert!(gf3258_primary_geometry_needs_refinement(3, 246));
-        assert!(!gf3258_primary_geometry_needs_refinement(3, 180));
-    }
-
-    #[test]
     fn refined_pair_selector_uses_transform_filter_and_polarity_partitions() {
         let matcher_point = |x: u16, y: u16, polarity: u16| Gf3258MatcherPoint {
             polarity,

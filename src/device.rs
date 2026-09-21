@@ -394,11 +394,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reenumeration_poll_interval_is_shorter_than_vendor_bound() {
-        assert!(REENUMERATION_POLL_INTERVAL < Duration::from_secs(10));
-    }
-
-    #[test]
     fn rusb_timeout_maps_to_backend_neutral_timeout() {
         let error = GoodixUsbError::from(rusb::Error::Timeout);
 

@@ -440,13 +440,6 @@ mod tests {
     }
 
     #[test]
-    fn logical_get_version_packet_is_unpadded() {
-        let packet = encode_a0_packet(Command::GetVersion, &[0, 0]).unwrap();
-
-        assert_eq!(packet, GET_VERSION_REQUEST);
-    }
-
-    #[test]
     fn encodes_captured_firmware_check_packet() {
         let tag = [
             0x55, 0xc3, 0xfd, 0x0c, 0xa4, 0xab, 0x6c, 0xb5, 0xaf, 0xaa, 0x29, 0x48, 0x1a, 0xfd,

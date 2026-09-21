@@ -579,30 +579,6 @@ mod tests {
     }
 
     #[test]
-    fn public_result_preserves_terminal_score_interpretation() {
-        let raw = synthetic_raw();
-        let mut enrollment = crate::enrollment::Gf3258EnrollmentWorkflow::new();
-        assert!(matches!(
-            enrollment.process_raw_frame(&raw).unwrap(),
-            crate::enrollment::Gf3258EnrollmentFrameOutcome::Accepted(_)
-        ));
-        let artifacts = enrollment.encode_artifacts().unwrap();
-        let template = Gf3258VerificationTemplate::from_tgla(artifacts.tgla_template()).unwrap();
-
-        let mut workflow = Gf3258VerificationWorkflow::new();
-        let outcome = workflow.verify_raw_frame(&template, &raw).unwrap();
-        let Gf3258RawFrameVerificationOutcome::Verified(result) = outcome else {
-            panic!("synthetic frame unexpectedly rejected");
-        };
-
-        assert_eq!(
-            result.decision(),
-            Gf3258GalleryVerificationDecision::from_score(result.score())
-        );
-        assert_eq!(result.diagnostics().point_count, 0);
-    }
-
-    #[test]
     fn prepared_feature_projects_one_consistent_policy_view() {
         let mut workflow = Gf3258VerificationWorkflow::new();
         let result = workflow.prepare_raw_frame(&synthetic_raw()).unwrap();

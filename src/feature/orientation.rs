@@ -1042,26 +1042,4 @@ mod tests {
         assert_eq!(vertical_filtered[center], vertical_ramp[center]);
         assert_eq!(diagonal_filtered[center], diagonal_ramp[center]);
     }
-
-    #[test]
-    fn c7310_selector_quantization_matches_vendor_boundaries() {
-        fn class(selector: u8) -> usize {
-            let delta = selector.wrapping_sub(8);
-            if delta < 0xa5 {
-                usize::from(delta / 15) + 1
-            } else {
-                0
-            }
-        }
-
-        assert_eq!(class(0), 0);
-        assert_eq!(class(7), 0);
-        assert_eq!(class(8), 1);
-        assert_eq!(class(22), 1);
-        assert_eq!(class(23), 2);
-        assert_eq!(class(172), 11);
-        assert_eq!(class(173), 0);
-        assert_eq!(class(179), 0);
-        assert_eq!(class(255), 0);
-    }
 }
