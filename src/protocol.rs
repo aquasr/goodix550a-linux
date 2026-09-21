@@ -78,7 +78,6 @@ pub(crate) struct McuPacket {
     /// Incoming GetImage (0x20) responses are different: their encoded
     /// length is the complete protected-image payload length and there is
     /// no ordinary MCU trailer byte.
-    #[allow(dead_code)]
     pub(crate) trailer: Option<u8>,
 }
 

@@ -7,11 +7,10 @@ use std::{
 use goodix_info::libfprint_wire::{
     GF3258_LIBFPRINT_POSTBOOT_RESET_DELAY_MS, GF3258_LIBFPRINT_USB_OUT_BLOCK_SIZE,
     Gf3258LibfprintBootstrapEngine, Gf3258LibfprintBootstrapProgress, Gf3258LibfprintCaptureEngine,
-    Gf3258LibfprintCaptureProgress, Gf3258LibfprintEnrollmentDisposition,
-    Gf3258LibfprintEnrollmentEngine, Gf3258LibfprintFirmwareIdentity,
-    Gf3258LibfprintIdentificationDisposition, Gf3258LibfprintIdentificationEngine,
-    Gf3258LibfprintRecoveryEngine, Gf3258LibfprintTransferDirection,
-    Gf3258LibfprintVerificationDisposition, Gf3258LibfprintVerificationEngine,
+    Gf3258LibfprintCaptureProgress, Gf3258LibfprintEnrollmentEngine,
+    Gf3258LibfprintFirmwareIdentity, Gf3258LibfprintIdentificationDisposition,
+    Gf3258LibfprintIdentificationEngine, Gf3258LibfprintRecoveryEngine,
+    Gf3258LibfprintTransferDirection, Gf3258LibfprintVerificationEngine,
     gf3258_libfprint_build_bootstrap_reset_request, gf3258_libfprint_build_chip_id_request,
     gf3258_libfprint_build_get_version_request, gf3258_libfprint_build_postboot_reset_request,
     gf3258_libfprint_parse_bootstrap_reset_ack, gf3258_libfprint_parse_chip_id_ack,
@@ -24,18 +23,6 @@ const STATUS_OK: i32 = 0;
 const STATUS_INVALID_ARGUMENT: i32 = -1;
 const STATUS_BUFFER_TOO_SMALL: i32 = -2;
 const STATUS_PROTOCOL_ERROR: i32 = -3;
-
-const FIRMWARE_APP15045: u32 = 1;
-const FIRMWARE_IAP10007: u32 = 2;
-const ENROLL_RETRY: u32 = 1;
-const ENROLL_PROGRESS: u32 = 2;
-const ENROLL_COMPLETE: u32 = 3;
-const VERIFY_RETRY: u32 = 1;
-const VERIFY_MATCH: u32 = 2;
-const VERIFY_NO_MATCH: u32 = 3;
-const IDENTIFY_RETRY: u32 = 1;
-const IDENTIFY_MATCH: u32 = 2;
-const IDENTIFY_NO_MATCH: u32 = 3;
 
 static STATUS_OK_TEXT: &[u8] = b"ok\0";
 static STATUS_INVALID_ARGUMENT_TEXT: &[u8] = b"invalid bridge argument\0";
@@ -768,10 +755,7 @@ pub unsafe extern "C" fn goodix550a_bridge_parse_get_version_response(
         Err(_) => return STATUS_PROTOCOL_ERROR,
     };
 
-    let value = match parsed {
-        Gf3258LibfprintFirmwareIdentity::App15045 => FIRMWARE_APP15045,
-        Gf3258LibfprintFirmwareIdentity::Iap10007 => FIRMWARE_IAP10007,
-    };
+    let value = parsed as u32;
 
     // SAFETY: `firmware` was checked for null and points to writable storage
     // owned by the C caller for the duration of this call.
@@ -1575,11 +1559,7 @@ pub unsafe extern "C" fn goodix550a_bridge_enrollment_result(
         Ok(result) => result,
         Err(error) => return enrollment.state.record_error(error),
     };
-    let disposition = match result.disposition() {
-        Gf3258LibfprintEnrollmentDisposition::Retry => ENROLL_RETRY,
-        Gf3258LibfprintEnrollmentDisposition::Progress => ENROLL_PROGRESS,
-        Gf3258LibfprintEnrollmentDisposition::Complete => ENROLL_COMPLETE,
-    };
+    let disposition = result.disposition() as u32;
     let value = Goodix550aBridgeEnrollmentInfo {
         disposition,
         sample_count: result.sample_count(),
@@ -1854,11 +1834,7 @@ pub unsafe extern "C" fn goodix550a_bridge_verification_result(
         Ok(result) => result,
         Err(error) => return verification.state.record_error(error),
     };
-    let disposition = match result.disposition() {
-        Gf3258LibfprintVerificationDisposition::Retry => VERIFY_RETRY,
-        Gf3258LibfprintVerificationDisposition::Match => VERIFY_MATCH,
-        Gf3258LibfprintVerificationDisposition::NoMatch => VERIFY_NO_MATCH,
-    };
+    let disposition = result.disposition() as u32;
     let value = Goodix550aBridgeVerificationInfo {
         disposition,
         score: result.score(),
@@ -2113,11 +2089,8 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_result(
         Err(error) => return identification.state.record_error(error),
     };
 
-    let disposition = match result.disposition() {
-        Gf3258LibfprintIdentificationDisposition::Retry => IDENTIFY_RETRY,
-        Gf3258LibfprintIdentificationDisposition::Match => IDENTIFY_MATCH,
-        Gf3258LibfprintIdentificationDisposition::NoMatch => IDENTIFY_NO_MATCH,
-    };
+    let result_disposition = result.disposition();
+    let disposition = result_disposition as u32;
 
     /*
      * SIZE_MAX is only a transport sentinel. C must inspect disposition before
@@ -2128,13 +2101,17 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_result(
         None => usize::MAX,
     };
 
-    if disposition == IDENTIFY_MATCH && result.match_index().is_none() {
+    if result_disposition == Gf3258LibfprintIdentificationDisposition::Match
+        && result.match_index().is_none()
+    {
         return identification
             .state
             .record_error("identification Match result did not contain a gallery index");
     }
 
-    if disposition != IDENTIFY_MATCH && result.match_index().is_some() {
+    if result_disposition != Gf3258LibfprintIdentificationDisposition::Match
+        && result.match_index().is_some()
+    {
         return identification.state.record_error(
             "non-Match identification result unexpectedly contained a gallery index",
         );
@@ -2222,10 +2199,12 @@ pub unsafe extern "C" fn goodix550a_bridge_identification_last_error(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn goodix550a_bridge_firmware_name(firmware: u32) -> *const c_char {
-    match firmware {
-        FIRMWARE_APP15045 => c_text(APP_VERSION_TEXT),
-        FIRMWARE_IAP10007 => c_text(IAP_VERSION_TEXT),
-        _ => c_text(UNKNOWN_VERSION_TEXT),
+    if firmware == Gf3258LibfprintFirmwareIdentity::App15045 as u32 {
+        c_text(APP_VERSION_TEXT)
+    } else if firmware == Gf3258LibfprintFirmwareIdentity::Iap10007 as u32 {
+        c_text(IAP_VERSION_TEXT)
+    } else {
+        c_text(UNKNOWN_VERSION_TEXT)
     }
 }
 
