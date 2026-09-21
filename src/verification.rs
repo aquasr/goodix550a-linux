@@ -42,7 +42,16 @@ mod rescue_geometry;
 pub(crate) use rescue_geometry::*;
 #[path = "verification_live.rs"]
 mod live;
-pub use live::*;
+pub(crate) use live::{
+    GF3258_LIVE_VERIFICATION_FEATURE_REVISION, GF3258_RECOGNITION_QUALITY_SCALE_Q8,
+    Gf3258DetailedRawFrameVerificationOutcome,
+};
+pub use live::{
+    Gf3258LiveVerificationDiagnostics, Gf3258LiveVerificationPreparationError,
+    Gf3258LiveVerificationRejection, Gf3258RawFrameVerificationError,
+    Gf3258RawFrameVerificationOutcome, Gf3258VerificationResult, Gf3258VerificationTemplate,
+    Gf3258VerificationTemplateError, Gf3258VerificationWorkflow,
+};
 
 /// GF3258 caps `FUN_001704f0` correspondence geometry at 31 pairs and uses the
 /// same value as the per-sample normalization divisor in `FUN_001900b0`.

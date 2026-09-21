@@ -133,7 +133,7 @@ impl TraceLogger {
     /// This is useful around USB reset/re-enumeration where no bulk endpoint
     /// transfer exists to represent events such as "old device dropped" or
     /// "new APP device reopened".
-        pub(crate) fn event(&self, message: &str) -> io::Result<()> {
+    pub(crate) fn event(&self, message: &str) -> io::Result<()> {
         let elapsed = self.elapsed_seconds();
 
         let line = format!("[{elapsed:10.6}] EVENT {message}");

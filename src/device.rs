@@ -226,7 +226,7 @@ impl GoodixDevice {
     ///
     /// This helper performs no MCU command and cannot initiate a reset by
     /// itself.
-        pub(crate) fn wait_for_reenumeration(timeout: Duration) -> Result<Self, ReenumerationError> {
+    pub(crate) fn wait_for_reenumeration(timeout: Duration) -> Result<Self, ReenumerationError> {
         let deadline = Instant::now() + timeout;
 
         /*
