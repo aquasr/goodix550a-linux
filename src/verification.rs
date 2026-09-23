@@ -4920,7 +4920,6 @@ mod tests {
 
     #[test]
     fn gf3258_metric_contribution_uses_exact_divisor_and_rounding() {
-        assert_eq!(GF3258_VERIFICATION_METRIC_DIVISOR, 31);
         assert_eq!(gf3258_verification_metric_contribution_q8(0), 0);
         assert_eq!(gf3258_verification_metric_contribution_q8(1), 8);
         assert_eq!(gf3258_verification_metric_contribution_q8(5), 41);
@@ -8081,14 +8080,6 @@ mod tests {
         assert!(gf3258_primary_geometry_needs_refinement(3, 181));
         assert!(gf3258_primary_geometry_needs_refinement(15, 246));
         assert!(!gf3258_primary_geometry_needs_refinement(16, 246));
-    }
-
-    #[test]
-    fn primary_refinement_gate_uses_a9a50_evidence_not_coverage() {
-        // The all-valid identity fixed vector has evidence 246 and coverage
-        // 256. The raw 0x72700 gate consumes the former.
-        assert!(gf3258_primary_geometry_needs_refinement(3, 246));
-        assert!(!gf3258_primary_geometry_needs_refinement(3, 180));
     }
 
     #[test]

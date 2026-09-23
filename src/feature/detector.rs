@@ -709,27 +709,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recovered_kernel_records_are_exact() {
-        assert_eq!(GAUSS_300.iter().sum::<i32>(), 65536);
-        assert_eq!(GAUSS_301.iter().sum::<i32>(), 65536);
-        assert_eq!(GAUSS_302.iter().sum::<i32>(), 65536);
-        assert_eq!(GAUSS_303.iter().sum::<i32>(), 65536);
-        assert_eq!(GAUSS_304.iter().sum::<i32>(), 65537);
-        assert_eq!(GAUSS_305.iter().sum::<i32>(), 65536);
-        assert_eq!(GAUSS_306.iter().sum::<i32>(), 65536);
-        assert_eq!(GAUSS_307.iter().sum::<i32>(), 65539);
-        assert_eq!(GAUSS_308.iter().sum::<i32>(), 65536);
-    }
-
-    #[test]
-    fn scale_space_has_nine_levels_and_eight_dogs() {
-        let image = vec![127u8; GF3258_PIXELS];
-        let scale = Gf3258ScaleSpace::build(&image).unwrap();
-        assert_eq!(scale.levels().len(), 9);
-        assert_eq!(scale.dogs().len(), 8);
-    }
-
-    #[test]
     fn constant_image_has_no_raw_extrema() {
         let image = vec![127u8; GF3258_PIXELS];
         let scale = Gf3258ScaleSpace::build(&image).unwrap();

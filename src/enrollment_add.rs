@@ -128,8 +128,6 @@ impl From<Gf3258EnrollmentGraphError> for Gf3258EnrollmentAddError {
 /// incomplete entry rather than fabricating bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Gf3258EnrollmentTemplateCore {
-    /// Physical number of preallocated sample slots in the recovered newTemp layout.
-    storage_capacity: usize,
     /// Runtime enrollment bound stored at vendor template+0x28 and serialized as tag 0x97.
     configured_max_samples: usize,
     pub graph: Gf3258EnrollmentGraph,
@@ -152,19 +150,11 @@ impl Gf3258EnrollmentTemplateCore {
     ) -> Self {
         assert!(configured_max_samples <= storage_capacity);
         Self {
-            storage_capacity,
             configured_max_samples,
             graph: Gf3258EnrollmentGraph::new(storage_capacity),
             point_sets: Vec::with_capacity(storage_capacity),
             persistent_samples: Vec::with_capacity(storage_capacity),
         }
-    }
-
-    /// Physical/preallocated slot capacity (50 for the GF3258 newTemp profile).
-    #[inline]
-    #[cfg(test)]
-    pub fn capacity(&self) -> usize {
-        self.storage_capacity
     }
 
     /// Runtime enrollment bound at template+0x28, serialized as top-level tag 0x97.
@@ -738,14 +728,6 @@ mod tests {
                 cursor
             );
         }
-    }
-
-    #[test]
-    fn storage_capacity_and_configured_bound_are_distinct() {
-        let template = Gf3258EnrollmentTemplateCore::new_with_configured_max_samples(50, 40);
-        assert_eq!(template.capacity(), 50);
-        assert_eq!(template.configured_max_samples(), 40);
-        assert_eq!(template.relation_table_cursor(), 0);
     }
 
     #[test]

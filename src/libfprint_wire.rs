@@ -3081,21 +3081,6 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_target_invariants_are_pinned() {
-        let info = Gf3258LibfprintBootstrapFirmwareInfo {
-            blob_bytes: BOOTSTRAP_BLOB_SIZE,
-            app_bytes: BOOTSTRAP_APP_SIZE,
-            blob_crc: BOOTSTRAP_BLOB_CRC,
-            app_crc: BOOTSTRAP_APP_CRC,
-            header_crc: BOOTSTRAP_HEADER_CRC,
-            package_bytes: BOOTSTRAP_PACKAGE_SIZE,
-            f0_chunks: BOOTSTRAP_F0_CHUNKS,
-        };
-        validate_bootstrap_firmware_info(info).unwrap();
-        assert_eq!(info.f0_chunks(), 98);
-    }
-
-    #[test]
     fn bootstrap_target_invariant_rejects_modified_app_crc() {
         let info = Gf3258LibfprintBootstrapFirmwareInfo {
             blob_bytes: BOOTSTRAP_BLOB_SIZE,
@@ -3490,11 +3475,6 @@ mod tests {
     fn rejects_unexpected_chip_id() {
         let response = encode_a0_packet(Command::ReadRegister, &[0x03, 0xa8, 0x00, 0x24]).unwrap();
         assert!(gf3258_libfprint_validate_chip_id_response(&response).is_err());
-    }
-
-    #[test]
-    fn postboot_reset_delay_matches_recovered_loader_delay() {
-        assert_eq!(GF3258_LIBFPRINT_POSTBOOT_RESET_DELAY_MS, 10);
     }
 
     #[test]

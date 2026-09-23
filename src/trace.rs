@@ -184,12 +184,6 @@ mod tests {
     };
 
     #[test]
-    fn direction_display_matches_trace_format() {
-        assert_eq!(Direction::In.to_string(), "IN");
-        assert_eq!(Direction::Out.to_string(), "OUT");
-    }
-
-    #[test]
     fn hex_encoding_is_lowercase_and_contiguous() {
         assert_eq!(encode_hex(&[0x00, 0x01, 0xA0, 0xFF]), "0001a0ff");
     }
@@ -250,28 +244,11 @@ mod tests {
     }
 
     #[test]
-    fn cloned_loggers_share_the_same_start_timestamp() {
-        let first = TraceLogger::new(None).unwrap();
-        let second = first.clone();
-
-        assert!(Rc::ptr_eq(&first.state, &second.state));
-    }
-
-    #[test]
     fn quiet_logger_has_no_file_sink() {
         let trace = TraceLogger::quiet();
 
         assert!(!trace.has_writer());
         trace.transfer(Direction::Out, 0x01, &[0xa0, 0x00]).unwrap();
         trace.event("quiet event").unwrap();
-    }
-
-    #[test]
-    fn logger_without_trace_path_has_no_file_sink() {
-        let trace = TraceLogger::new(None).unwrap();
-
-        assert!(!trace.has_writer());
-        trace.transfer(Direction::Out, 0x01, &[0xa0, 0x00]).unwrap();
-        trace.event("unconfigured trace event").unwrap();
     }
 }

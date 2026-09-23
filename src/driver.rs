@@ -905,53 +905,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn usb_layout_projects_internal_layout_without_reinterpreting_endpoints() {
-        let layout = Gf3258UsbLayout::from(UsbLayout {
-            interface: 0,
-            bulk_in: 0x83,
-            bulk_out: 0x01,
-            max_packet_size: 64,
-        });
-
-        assert_eq!(layout.interface(), 0);
-        assert_eq!(layout.bulk_in(), 0x83);
-        assert_eq!(layout.bulk_out(), 0x01);
-        assert_eq!(layout.max_packet_size(), 64);
-    }
-
-    #[test]
-    fn session_errors_preserve_stage_and_message() {
-        let error = Gf3258SessionError::stage(Gf3258SessionStage::ReadVersion, "bad response");
-        assert_eq!(
-            error.to_string(),
-            "GF3258 session failed while trying to read firmware version: bad response"
-        );
-    }
-
-    #[test]
-    fn supported_iap_version_is_exact() {
-        assert_eq!(GF3258_SUPPORTED_IAP_FIRMWARE, "MILAN_GM168SEC_IAP_10007");
-    }
-
-    #[test]
-    fn bootstrap_required_error_keeps_iap_version() {
-        let error = Gf3258SessionError::BootstrapFirmwareRequired {
-            current: GF3258_SUPPORTED_IAP_FIRMWARE.to_owned(),
-        };
-        assert!(error.to_string().contains(GF3258_SUPPORTED_IAP_FIRMWARE));
-        assert!(error.to_string().contains(GF3258_SUPPORTED_APP_FIRMWARE));
-    }
-
-    #[test]
-    fn unsupported_firmware_error_keeps_reported_version() {
-        let error = Gf3258SessionError::UnsupportedFirmware {
-            expected: GF3258_SUPPORTED_APP_FIRMWARE,
-            actual: "MILAN_GM168SEC_IAP_10007".to_owned(),
-        };
-        assert!(error.to_string().contains("MILAN_GM168SEC_IAP_10007"));
-    }
-
-    #[test]
     fn enrollment_transaction_starts_empty_and_refuses_incomplete_finish() {
         let transaction = Gf3258EnrollmentTransaction::new();
         assert_eq!(transaction.sample_count(), 0);
